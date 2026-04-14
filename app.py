@@ -10,7 +10,7 @@ from pathlib import Path
 import streamlit as st
 from dotenv import load_dotenv
 
-from gemini_transcribe_v2 import run_pipeline, MODEL_PRICING
+from gemini_transcribe_v2 import run_pipeline, MODEL_PRICING, SUPPORTED_LANGUAGES
 
 # .env 読み込み
 load_dotenv()
@@ -38,6 +38,13 @@ with st.sidebar:
     model = st.selectbox(
         "🤖 モデル",
         ["gemini-2.5-flash", "gemini-2.5-pro"],
+        index=0,
+    )
+
+    lang = st.selectbox(
+        "🌐 出力言語",
+        options=list(SUPPORTED_LANGUAGES.keys()),
+        format_func=lambda k: f"{SUPPORTED_LANGUAGES[k]}",
         index=0,
     )
 
@@ -126,6 +133,7 @@ if run_button:
             file_path=tmp_path,
             api_key=api_key,
             model=model,
+            lang=lang,
             output_dir=output_dir,
             output_prefix=prefix or Path(uploaded_file.name).stem,
             on_progress=on_progress,

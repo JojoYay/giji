@@ -31,9 +31,19 @@ from google.genai import types
 # .env を読み込み（スクリプトと同じディレクトリの .env を明示指定）
 load_dotenv(Path(__file__).parent / ".env")
 
-TRANSCRIPT_PROMPT = """\
-この音声/動画ファイルは日本語のビジネスWeb会議の録音です。
-以下の形式で完全な文字起こしを行ってください。
+# ───────── 多言語プロンプト ─────────
+
+SUPPORTED_LANGUAGES = {
+    "ja": "日本語",
+    "en": "English",
+    "zh": "中文",
+    "ms": "Bahasa Melayu",
+}
+
+TRANSCRIPT_PROMPTS = {
+    "ja": """\
+この音声/動画ファイルはビジネスWeb会議の録音です。
+以下の形式で完全な文字起こしを日本語で行ってください。
 
 【出力形式】
 [HH:MM:SS] 話者名または「話者A/B/C...」: 発言内容
@@ -43,9 +53,50 @@ TRANSCRIPT_PROMPT = """\
 - 話者が変わるたびに新しい行にしてください
 - 聞き取りにくい箇所は (不明瞭) と記載してください
 - 専門用語・固有名詞はそのまま記載してください
-"""
+""",
+    "en": """\
+This audio/video file is a recording of a business web meeting.
+Please provide a complete transcription in English in the following format.
 
-SUMMARY_PROMPT = """\
+[Output format]
+[HH:MM:SS] Speaker name or "Speaker A/B/C...": Statement
+
+[Rules]
+- Transcribe statements as accurately as possible
+- Start a new line each time the speaker changes
+- Mark unclear parts as (inaudible)
+- Keep technical terms and proper nouns as-is
+""",
+    "zh": """\
+这是一段商务网络会议的录音文件。
+请按照以下格式用中文进行完整的文字转录。
+
+【输出格式】
+[HH:MM:SS] 发言人姓名或"发言人A/B/C...": 发言内容
+
+【规则】
+- 请尽可能准确地转录发言内容
+- 每当发言人更换时，请另起一行
+- 听不清楚的部分请标注（不清楚）
+- 专业术语和专有名词请保持原样
+""",
+    "ms": """\
+Fail audio/video ini ialah rakaman mesyuarat web perniagaan.
+Sila buat transkripsi lengkap dalam Bahasa Melayu mengikut format berikut.
+
+[Format output]
+[HH:MM:SS] Nama penutur atau "Penutur A/B/C...": Kandungan ucapan
+
+[Peraturan]
+- Transkripsi ucapan setepat mungkin
+- Mulakan baris baharu setiap kali penutur bertukar
+- Tandakan bahagian yang tidak jelas sebagai (tidak jelas)
+- Kekalkan istilah teknikal dan nama khas seperti asal
+""",
+}
+
+SUMMARY_PROMPTS = {
+    "ja": """\
 以下はビジネス会議の文字起こしです。これをもとに議事録を日本語で作成してください。
 
 # 議事録
@@ -72,7 +123,100 @@ SUMMARY_PROMPT = """\
 ---
 文字起こし:
 {transcript}
-"""
+""",
+    "en": """\
+Below is a transcription of a business meeting. Please create meeting minutes in English based on this.
+
+# Meeting Minutes
+
+## Basic Information
+- Date/Time (estimated from transcription)
+- Participants (speakers identified)
+- Format: Web meeting
+
+## Agenda / Purpose
+
+## Discussion
+
+## Decisions Made
+
+## Action Items
+| Assignee | Task | Deadline |
+|----------|------|----------|
+
+## Next Meeting
+
+## Notes
+
+---
+Transcription:
+{transcript}
+""",
+    "zh": """\
+以下是商务会议的文字记录。请据此用中文撰写会议纪要。
+
+# 会议纪要
+
+## 基本信息
+- 日期时间（从文字记录推断）
+- 参会人员（出现的发言人）
+- 会议形式：网络会议
+
+## 议题与目的
+
+## 讨论内容
+
+## 决定事项
+
+## 待办事项
+| 负责人 | 内容 | 截止日期 |
+|--------|------|----------|
+
+## 下次会议
+
+## 其他备注
+
+---
+文字记录：
+{transcript}
+""",
+    "ms": """\
+Berikut ialah transkripsi mesyuarat perniagaan. Sila buat minit mesyuarat dalam Bahasa Melayu berdasarkan ini.
+
+# Minit Mesyuarat
+
+## Maklumat Asas
+- Tarikh/Masa (dianggarkan daripada transkripsi)
+- Peserta (penutur yang dikenal pasti)
+- Format: Mesyuarat web
+
+## Agenda / Tujuan
+
+## Perbincangan
+
+## Keputusan
+
+## Tindakan Susulan
+| Bertanggungjawab | Tugasan | Tarikh Akhir |
+|------------------|---------|--------------|
+
+## Mesyuarat Seterusnya
+
+## Catatan
+
+---
+Transkripsi:
+{transcript}
+""",
+}
+
+
+def get_transcript_prompt(lang: str = "ja") -> str:
+    return TRANSCRIPT_PROMPTS.get(lang, TRANSCRIPT_PROMPTS["ja"])
+
+
+def get_summary_prompt(lang: str = "ja") -> str:
+    return SUMMARY_PROMPTS.get(lang, SUMMARY_PROMPTS["ja"])
 
 # ───────── 料金テーブル (USD per 1M tokens) ─────────
 # https://ai.google.dev/gemini-api/docs/pricing
@@ -284,24 +428,24 @@ def _generate_with_retry(client, model, contents, on_progress=None, label=""):
                 raise
 
 
-def transcribe(client, uploaded, model, on_progress=None):
+def transcribe(client, uploaded, model, lang="ja", on_progress=None):
     """アップロード済みファイルから文字起こしを実行する。response を返す。"""
     return _generate_with_retry(
         client, model,
         contents=[
             types.Part.from_uri(file_uri=uploaded.uri, mime_type=uploaded.mime_type),
-            TRANSCRIPT_PROMPT,
+            get_transcript_prompt(lang),
         ],
         on_progress=on_progress,
         label="文字起こし",
     )
 
 
-def summarize(client, transcript_text, model, on_progress=None):
+def summarize(client, transcript_text, model, lang="ja", on_progress=None):
     """文字起こしテキストから議事録要約を生成する。response を返す。"""
     return _generate_with_retry(
         client, model,
-        contents=SUMMARY_PROMPT.format(transcript=transcript_text),
+        contents=get_summary_prompt(lang).format(transcript=transcript_text),
         on_progress=on_progress,
         label="議事録生成",
     )
@@ -313,11 +457,15 @@ def run_pipeline(
     file_path: str,
     api_key: str,
     model: str = "gemini-2.5-flash",
+    lang: str = "ja",
     output_dir: str = ".",
     output_prefix: str | None = None,
     on_progress=None,
 ):
     """文字起こし→要約の全工程を実行し、ファイルに保存する。
+
+    Args:
+        lang: 出力言語コード ("ja", "en", "zh", "ms")
 
     Returns:
         (transcript_text, summary_text, transcript_path, summary_path, usage_stats)
@@ -343,18 +491,19 @@ def run_pipeline(
             except Exception:
                 pass
 
+    lang_name = SUPPORTED_LANGUAGES.get(lang, lang)
     if on_progress:
-        on_progress("step", f"[2/4] 文字起こし中 ({model})...")
+        on_progress("step", f"[2/4] 文字起こし中 ({model} / {lang_name})...")
 
-    resp1 = transcribe(client, uploaded, model, on_progress)
+    resp1 = transcribe(client, uploaded, model, lang, on_progress)
     transcript = resp1.text
     if resp1.usage_metadata:
         usage.add("文字起こし", resp1.usage_metadata)
 
     if on_progress:
-        on_progress("step", "[3/4] 議事録生成中...")
+        on_progress("step", f"[3/4] 議事録生成中 ({lang_name})...")
 
-    resp2 = summarize(client, transcript, model, on_progress)
+    resp2 = summarize(client, transcript, model, lang, on_progress)
     summary = resp2.text
     if resp2.usage_metadata:
         usage.add("議事録生成", resp2.usage_metadata)
@@ -391,6 +540,9 @@ def main():
     parser.add_argument("--file", required=True, help="音声/動画ファイルのパス")
     parser.add_argument("--api_key", default=None, help="Gemini APIキー")
     parser.add_argument("--model", default="gemini-2.5-flash", help="使用モデル")
+    parser.add_argument("--lang", default="ja",
+                        choices=list(SUPPORTED_LANGUAGES.keys()),
+                        help="出力言語 (ja/en/zh/ms)")
     parser.add_argument("--output_dir", default=".", help="出力先フォルダ")
     parser.add_argument("--output_prefix", default=None, help="出力ファイル名プレフィックス")
     args = parser.parse_args()
@@ -417,10 +569,13 @@ def main():
         elif kind == "upload_done":
             print(f"      アップロード完了: {msg}")
 
+    print(f"出力言語: {SUPPORTED_LANGUAGES.get(args.lang, args.lang)}")
+
     transcript, summary, t_path, s_path, usage = run_pipeline(
         file_path=str(fp),
         api_key=api_key,
         model=args.model,
+        lang=args.lang,
         output_dir=args.output_dir,
         output_prefix=args.output_prefix,
         on_progress=cli_progress,

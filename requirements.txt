@@ -1,3 +1,5 @@
 google-genai
 python-dotenv
 streamlit
+stripe
+imageio-ffmpeg

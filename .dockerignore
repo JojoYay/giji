@@ -1,0 +1,10 @@
+.env
+.git
+.claude
+source/
+output/
+__pycache__/
+*.pyc
+*.md
+*.bat
+*.pdf

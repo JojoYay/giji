@@ -16,6 +16,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from dataclasses import dataclass, field
 from pathlib import Path
 
 # Windows コンソールで日本語出力を可能にする
@@ -73,19 +74,101 @@ SUMMARY_PROMPT = """\
 {transcript}
 """
 
+# ───────── 料金テーブル (USD per 1M tokens) ─────────
+# https://ai.google.dev/gemini-api/docs/pricing
+MODEL_PRICING = {
+    "gemini-2.5-flash": {
+        "input":  0.30,   # text/image/video per 1M tokens
+        "output": 2.50,
+        "audio_input": 1.00,  # audio per 1M tokens
+    },
+    "gemini-2.5-pro": {
+        "input":  1.25,   # ≤200k context
+        "output": 10.00,
+        "audio_input": None,  # same as input
+    },
+}
+
+# フォールバック料金（不明モデル用）
+DEFAULT_PRICING = {"input": 1.25, "output": 10.00, "audio_input": None}
+
+
+@dataclass
+class UsageStats:
+    """API呼び出しのトークン使用量とコストを蓄積する。"""
+    input_tokens: int = 0
+    output_tokens: int = 0
+    total_tokens: int = 0
+    calls: list = field(default_factory=list)  # 各呼び出しの詳細
+
+    def add(self, label: str, usage_metadata):
+        """レスポンスの usage_metadata から統計を加算する。"""
+        inp = getattr(usage_metadata, "prompt_token_count", 0) or 0
+        out = getattr(usage_metadata, "candidates_token_count", 0) or 0
+        tot = getattr(usage_metadata, "total_token_count", 0) or (inp + out)
+        self.input_tokens += inp
+        self.output_tokens += out
+        self.total_tokens += tot
+        self.calls.append({"label": label, "input": inp, "output": out, "total": tot})
+
+    def calc_cost(self, model: str, has_audio: bool = False) -> float:
+        """合計コスト (USD) を計算する。"""
+        pricing = MODEL_PRICING.get(model, DEFAULT_PRICING)
+        # 音声入力がある呼び出しは audio_input 料金を適用
+        input_rate = pricing.get("audio_input") if has_audio and pricing.get("audio_input") else pricing["input"]
+        cost_in = (self.input_tokens / 1_000_000) * input_rate
+        cost_out = (self.output_tokens / 1_000_000) * pricing["output"]
+        return cost_in + cost_out
+
+    def format_report(self, model: str, has_audio: bool = False) -> str:
+        """コストレポートを文字列で返す。"""
+        pricing = MODEL_PRICING.get(model, DEFAULT_PRICING)
+        input_rate = pricing.get("audio_input") if has_audio and pricing.get("audio_input") else pricing["input"]
+        output_rate = pricing["output"]
+
+        cost_in = (self.input_tokens / 1_000_000) * input_rate
+        cost_out = (self.output_tokens / 1_000_000) * output_rate
+        total_cost = cost_in + cost_out
+
+        lines = [
+            "=" * 50,
+            "💰 API使用量・コストレポート",
+            "=" * 50,
+            f"  モデル: {model}",
+            f"  入力単価: ${input_rate:.2f} / 1M tokens",
+            f"  出力単価: ${output_rate:.2f} / 1M tokens",
+            "-" * 50,
+        ]
+        for c in self.calls:
+            lines.append(f"  [{c['label']}]")
+            lines.append(f"    入力: {c['input']:,} tokens")
+            lines.append(f"    出力: {c['output']:,} tokens")
+        lines += [
+            "-" * 50,
+            f"  合計入力: {self.input_tokens:,} tokens",
+            f"  合計出力: {self.output_tokens:,} tokens",
+            f"  合計トークン: {self.total_tokens:,} tokens",
+            "-" * 50,
+            f"  入力コスト: ${cost_in:.4f}",
+            f"  出力コスト: ${cost_out:.4f}",
+            f"  ★ 合計コスト: ${total_cost:.4f} USD",
+            "=" * 50,
+        ]
+        return "\n".join(lines)
+
+
+# ───────── ユーティリティ ─────────
 
 VIDEO_EXTENSIONS = {".mp4", ".mkv", ".avi", ".mov", ".webm", ".flv", ".wmv"}
 
 
 def _get_ffmpeg() -> str | None:
     """利用可能なffmpegのパスを返す。"""
-    # まず imageio-ffmpeg の同梱バイナリを試す
     try:
         import imageio_ffmpeg
         return imageio_ffmpeg.get_ffmpeg_exe()
     except (ImportError, RuntimeError):
         pass
-    # PATHにあるffmpegを試す
     try:
         subprocess.run(["ffmpeg", "-version"], capture_output=True, check=True)
         return "ffmpeg"
@@ -94,9 +177,7 @@ def _get_ffmpeg() -> str | None:
 
 
 def _extract_audio(file_path: str, on_progress=None) -> str | None:
-    """動画ファイルからffmpegで音声のみ抽出し、一時ファイルのパスを返す。
-    音声ファイルの場合やffmpegが無い場合は None を返す。
-    """
+    """動画ファイルからffmpegで音声のみ抽出し、一時ファイルのパスを返す。"""
     p = Path(file_path)
     if p.suffix.lower() not in VIDEO_EXTENSIONS:
         return None
@@ -113,11 +194,7 @@ def _extract_audio(file_path: str, on_progress=None) -> str | None:
 
     cmd = [
         ffmpeg_bin, "-y", "-i", file_path,
-        "-vn",                # 映像なし
-        "-acodec", "aac",     # AAC エンコード
-        "-b:a", "64k",        # 64kbps (会議音声なら十分)
-        "-ac", "1",           # モノラル
-        "-ar", "16000",       # 16kHz
+        "-vn", "-acodec", "aac", "-b:a", "64k", "-ac", "1", "-ar", "16000",
         tmp.name,
     ]
     result = subprocess.run(cmd, capture_output=True)
@@ -131,7 +208,6 @@ def _extract_audio(file_path: str, on_progress=None) -> str | None:
     size_mb = Path(tmp.name).stat().st_size / (1024 * 1024)
     if on_progress:
         on_progress("step", f"[前処理] 音声抽出完了 ({size_mb:.1f} MB)")
-
     return tmp.name
 
 
@@ -140,7 +216,7 @@ def _safe_copy_for_upload(file_path: str) -> str | None:
     p = Path(file_path)
     try:
         p.name.encode("ascii")
-        return None  # ASCII のみ → コピー不要
+        return None
     except UnicodeEncodeError:
         suffix = p.suffix
         tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix, prefix="upload_")
@@ -174,9 +250,10 @@ def upload_and_wait(client, file_path: str, on_progress=None):
 
     if uploaded.state.name != "ACTIVE":
         raise RuntimeError(f"ファイル処理エラー: 状態={uploaded.state.name}")
-
     return uploaded
 
+
+# ───────── Gemini API 呼び出し ─────────
 
 MAX_RETRIES = 5
 RETRY_WAIT = 30  # 秒
@@ -184,24 +261,20 @@ RETRY_WAIT = 30  # 秒
 
 def _generate_with_retry(client, model, contents, on_progress=None, label=""):
     """503/429 エラー時にリトライする generate_content ラッパー。
-    SDKの内部リトライ後の例外もキャッチしてリトライする。"""
-    from google.genai import types as gen_types
-
-    # SDK内部リトライを最小化するための設定
-    config = gen_types.GenerateContentConfig(
-        http_options=types.HttpOptions(timeout=600_000),
-    ) if hasattr(types, "HttpOptions") else None
-
+    response オブジェクトをそのまま返す（usage_metadata 取得のため）。"""
     for attempt in range(1, MAX_RETRIES + 1):
         try:
-            kwargs = {"model": model, "contents": contents}
-            if config:
-                kwargs["config"] = config
-            response = client.models.generate_content(**kwargs)
-            return response.text
+            response = client.models.generate_content(
+                model=model, contents=contents,
+            )
+            return response
         except Exception as e:
             code = getattr(e, "status_code", 0)
-            is_retryable = code in (503, 429, 500) or "high demand" in str(e).lower() or "unavailable" in str(e).lower()
+            is_retryable = (
+                code in (503, 429, 500)
+                or "high demand" in str(e).lower()
+                or "unavailable" in str(e).lower()
+            )
             if is_retryable and attempt < MAX_RETRIES:
                 wait = RETRY_WAIT * attempt
                 if on_progress:
@@ -211,14 +284,12 @@ def _generate_with_retry(client, model, contents, on_progress=None, label=""):
                 raise
 
 
-def transcribe(client, uploaded, model: str = "gemini-2.5-pro", on_progress=None):
-    """アップロード済みファイルから文字起こしを実行する。"""
+def transcribe(client, uploaded, model, on_progress=None):
+    """アップロード済みファイルから文字起こしを実行する。response を返す。"""
     return _generate_with_retry(
         client, model,
         contents=[
-            types.Part.from_uri(
-                file_uri=uploaded.uri, mime_type=uploaded.mime_type
-            ),
+            types.Part.from_uri(file_uri=uploaded.uri, mime_type=uploaded.mime_type),
             TRANSCRIPT_PROMPT,
         ],
         on_progress=on_progress,
@@ -226,20 +297,22 @@ def transcribe(client, uploaded, model: str = "gemini-2.5-pro", on_progress=None
     )
 
 
-def summarize(client, transcript: str, model: str = "gemini-2.5-pro", on_progress=None):
-    """文字起こしテキストから議事録要約を生成する。"""
+def summarize(client, transcript_text, model, on_progress=None):
+    """文字起こしテキストから議事録要約を生成する。response を返す。"""
     return _generate_with_retry(
         client, model,
-        contents=SUMMARY_PROMPT.format(transcript=transcript),
+        contents=SUMMARY_PROMPT.format(transcript=transcript_text),
         on_progress=on_progress,
         label="議事録生成",
     )
 
 
+# ───────── メインパイプライン ─────────
+
 def run_pipeline(
     file_path: str,
     api_key: str,
-    model: str = "gemini-2.5-pro",
+    model: str = "gemini-2.5-flash",
     output_dir: str = ".",
     output_prefix: str | None = None,
     on_progress=None,
@@ -247,14 +320,16 @@ def run_pipeline(
     """文字起こし→要約の全工程を実行し、ファイルに保存する。
 
     Returns:
-        (transcript_text, summary_text, transcript_path, summary_path)
+        (transcript_text, summary_text, transcript_path, summary_path, usage_stats)
     """
     client = genai.Client(api_key=api_key)
     fp = Path(file_path)
+    usage = UsageStats()
 
     # 動画の場合、音声のみ抽出してアップロードサイズを削減
     audio_tmp = _extract_audio(str(fp), on_progress)
     upload_file = audio_tmp or str(fp)
+    has_audio = True  # 文字起こしステップは音声入力
 
     if on_progress:
         on_progress("step", "[1/4] アップロード中...")
@@ -271,12 +346,18 @@ def run_pipeline(
     if on_progress:
         on_progress("step", f"[2/4] 文字起こし中 ({model})...")
 
-    transcript = transcribe(client, uploaded, model, on_progress)
+    resp1 = transcribe(client, uploaded, model, on_progress)
+    transcript = resp1.text
+    if resp1.usage_metadata:
+        usage.add("文字起こし", resp1.usage_metadata)
 
     if on_progress:
         on_progress("step", "[3/4] 議事録生成中...")
 
-    summary = summarize(client, transcript, model, on_progress)
+    resp2 = summarize(client, transcript, model, on_progress)
+    summary = resp2.text
+    if resp2.usage_metadata:
+        usage.add("議事録生成", resp2.usage_metadata)
 
     if on_progress:
         on_progress("step", "[4/4] ファイル保存中...")
@@ -298,10 +379,11 @@ def run_pipeline(
     except Exception:
         pass
 
-    return transcript, summary, str(transcript_path), str(summary_path)
+    return transcript, summary, str(transcript_path), str(summary_path), usage
 
 
-# --------------- CLI ---------------
+# ───────── CLI ─────────
+
 def main():
     parser = argparse.ArgumentParser(
         description="会議録音から文字起こし・議事録を生成 (Gemini API)"
@@ -335,7 +417,7 @@ def main():
         elif kind == "upload_done":
             print(f"      アップロード完了: {msg}")
 
-    transcript, summary, t_path, s_path = run_pipeline(
+    transcript, summary, t_path, s_path, usage = run_pipeline(
         file_path=str(fp),
         api_key=api_key,
         model=args.model,
@@ -346,6 +428,11 @@ def main():
 
     print(f"\n✅ 文字起こし → {t_path}")
     print(f"✅ 議事録     → {s_path}")
+
+    # コストレポート
+    print()
+    print(usage.format_report(args.model, has_audio=True))
+
     print("\n--- 議事録プレビュー ---")
     print(summary[:800])
 

@@ -10,7 +10,7 @@ from pathlib import Path
 import streamlit as st
 from dotenv import load_dotenv
 
-from gemini_transcribe_v2 import run_pipeline
+from gemini_transcribe_v2 import run_pipeline, MODEL_PRICING
 
 # .env 読み込み
 load_dotenv()
@@ -100,6 +100,7 @@ if run_button:
     status_text = st.empty()
 
     step_progress = {
+        "[前処理]": 5,
         "[1/4]": 10,
         "[2/4]": 40,
         "[3/4]": 70,
@@ -121,7 +122,7 @@ if run_button:
     try:
         prefix = output_prefix.strip() if output_prefix.strip() else None
 
-        transcript, summary, t_path, s_path = run_pipeline(
+        transcript, summary, t_path, s_path, usage = run_pipeline(
             file_path=tmp_path,
             api_key=api_key,
             model=model,
@@ -135,7 +136,26 @@ if run_button:
 
         st.success(f"✅ 完了! ファイル保存先: `{output_dir}/`")
 
-        # 結果表示
+        # ───── コストレポート ─────
+        total_cost = usage.calc_cost(model, has_audio=True)
+        cost_col1, cost_col2, cost_col3 = st.columns(3)
+        with cost_col1:
+            st.metric("入力トークン", f"{usage.input_tokens:,}")
+        with cost_col2:
+            st.metric("出力トークン", f"{usage.output_tokens:,}")
+        with cost_col3:
+            st.metric("合計コスト (USD)", f"${total_cost:.4f}")
+
+        with st.expander("💰 コスト詳細を表示"):
+            for c in usage.calls:
+                st.markdown(f"**{c['label']}** — 入力: {c['input']:,} / 出力: {c['output']:,} tokens")
+            pricing = MODEL_PRICING.get(model, {})
+            st.caption(
+                f"料金: 入力 ${pricing.get('audio_input') or pricing.get('input', '?')}/1M tokens, "
+                f"出力 ${pricing.get('output', '?')}/1M tokens (モデル: {model})"
+            )
+
+        # ───── 結果表示 ─────
         tab1, tab2 = st.tabs(["📄 文字起こし", "📋 議事録"])
 
         with tab1:
@@ -176,7 +196,6 @@ if run_button:
         st.error(f"エラーが発生しました: {e}")
 
     finally:
-        # 一時ファイル削除
         try:
             os.unlink(tmp_path)
         except Exception:

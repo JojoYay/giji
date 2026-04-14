@@ -25,8 +25,9 @@ source/
 Thumbs.db
 .DS_Store
 
-# Streamlit
-.streamlit/
+# Streamlit (keep config.toml)
+.streamlit/*
+!.streamlit/config.toml
 
 # Temp
 *.tmp

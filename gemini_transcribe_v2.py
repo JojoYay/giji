@@ -355,6 +355,89 @@ def _extract_audio(file_path: str, on_progress=None) -> str | None:
     return tmp.name
 
 
+# ───────── 音声分割 ─────────
+
+CHUNK_DURATION_SEC = 15 * 60  # 15分ごとに分割
+AUDIO_EXTENSIONS = {".m4a", ".wav", ".mp3", ".ogg", ".flac", ".aac", ".wma"}
+
+
+def _get_audio_duration(file_path: str, ffmpeg_bin: str) -> float | None:
+    """ffprobeで音声ファイルの長さ（秒）を取得する。"""
+    # ffprobe は ffmpeg と同じディレクトリにある
+    ffprobe_bin = ffmpeg_bin.replace("ffmpeg", "ffprobe")
+    if not Path(ffprobe_bin).exists() and ffmpeg_bin != "ffmpeg":
+        ffprobe_bin = str(Path(ffmpeg_bin).parent / "ffprobe")
+    try:
+        result = subprocess.run(
+            [ffprobe_bin, "-v", "error", "-show_entries", "format=duration",
+             "-of", "default=noprint_wrappers=1:nokey=1", file_path],
+            capture_output=True, text=True, timeout=30,
+        )
+        return float(result.stdout.strip())
+    except Exception:
+        # ffprobe が無い場合は ffmpeg で取得
+        try:
+            result = subprocess.run(
+                [ffmpeg_bin, "-i", file_path, "-f", "null", "-"],
+                capture_output=True, text=True, timeout=300,
+            )
+            # stderr から "Duration: HH:MM:SS.xx" を探す
+            import re
+            m = re.search(r"Duration:\s*(\d+):(\d+):(\d+\.\d+)", result.stderr)
+            if m:
+                return int(m.group(1)) * 3600 + int(m.group(2)) * 60 + float(m.group(3))
+        except Exception:
+            pass
+    return None
+
+
+def _split_audio(file_path: str, chunk_sec: int = CHUNK_DURATION_SEC,
+                 on_progress=None) -> list[str] | None:
+    """音声ファイルを chunk_sec 秒ごとに分割し、一時ファイルのパスリストを返す。
+    分割不要（短い）場合は None を返す。"""
+    ffmpeg_bin = _get_ffmpeg()
+    if not ffmpeg_bin:
+        return None
+
+    duration = _get_audio_duration(file_path, ffmpeg_bin)
+    if duration is None or duration <= chunk_sec:
+        return None  # 分割不要
+
+    num_chunks = int(duration // chunk_sec) + (1 if duration % chunk_sec > 0 else 0)
+    if on_progress:
+        on_progress("step", f"[前処理] 音声を{num_chunks}チャンクに分割中 (計{int(duration//60)}分)...")
+
+    suffix = Path(file_path).suffix or ".m4a"
+    chunks = []
+
+    for i in range(num_chunks):
+        start_sec = i * chunk_sec
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix, prefix=f"chunk{i:03d}_")
+        tmp.close()
+        cmd = [
+            ffmpeg_bin, "-y", "-i", file_path,
+            "-ss", str(start_sec), "-t", str(chunk_sec),
+            "-acodec", "copy",
+            tmp.name,
+        ]
+        result = subprocess.run(cmd, capture_output=True)
+        if result.returncode != 0:
+            # コピーが失敗したら再エンコード
+            cmd = [
+                ffmpeg_bin, "-y", "-i", file_path,
+                "-ss", str(start_sec), "-t", str(chunk_sec),
+                "-acodec", "aac", "-b:a", "64k", "-ac", "1", "-ar", "16000",
+                tmp.name,
+            ]
+            subprocess.run(cmd, capture_output=True)
+        chunks.append(tmp.name)
+
+    if on_progress:
+        on_progress("step", f"[前処理] {num_chunks}チャンクに分割完了")
+
+    return chunks
+
+
 def _safe_copy_for_upload(file_path: str) -> str | None:
     """ファイル名に非ASCII文字が含まれる場合、一時ファイルにコピーして返す。"""
     p = Path(file_path)
@@ -473,40 +556,100 @@ def run_pipeline(
     client = genai.Client(api_key=api_key)
     fp = Path(file_path)
     usage = UsageStats()
+    lang_name = SUPPORTED_LANGUAGES.get(lang, lang)
 
     # 動画の場合、音声のみ抽出してアップロードサイズを削減
     audio_tmp = _extract_audio(str(fp), on_progress)
-    upload_file = audio_tmp or str(fp)
-    has_audio = True  # 文字起こしステップは音声入力
+    audio_file = audio_tmp or str(fp)
 
-    if on_progress:
-        on_progress("step", "[1/4] アップロード中...")
+    # 音声が長い場合はチャンク分割
+    chunks = _split_audio(audio_file, on_progress=on_progress)
 
-    try:
-        uploaded = upload_and_wait(client, upload_file, on_progress)
-    finally:
+    if chunks:
+        # ─── 分割モード ───
+        total_chunks = len(chunks)
+        all_transcripts = []
+
+        for idx, chunk_path in enumerate(chunks, 1):
+            chunk_label = f"チャンク {idx}/{total_chunks}"
+
+            if on_progress:
+                on_progress("step", f"[{idx}/{total_chunks}] アップロード中...")
+
+            try:
+                uploaded = upload_and_wait(client, chunk_path, on_progress)
+            finally:
+                try:
+                    os.unlink(chunk_path)
+                except Exception:
+                    pass
+
+            if on_progress:
+                on_progress("step", f"[{idx}/{total_chunks}] 文字起こし中 ({lang_name})...")
+
+            resp = transcribe(client, uploaded, model, lang, on_progress)
+            all_transcripts.append(resp.text)
+            if resp.usage_metadata:
+                usage.add(f"文字起こし ({chunk_label})", resp.usage_metadata)
+
+            # Geminiアップロードファイル削除
+            try:
+                client.files.delete(name=uploaded.name)
+            except Exception:
+                pass
+
+        # 元の音声一時ファイル削除
         if audio_tmp:
             try:
                 os.unlink(audio_tmp)
             except Exception:
                 pass
 
-    lang_name = SUPPORTED_LANGUAGES.get(lang, lang)
-    if on_progress:
-        on_progress("step", f"[2/4] 文字起こし中 ({model} / {lang_name})...")
+        transcript = "\n\n".join(all_transcripts)
 
-    resp1 = transcribe(client, uploaded, model, lang, on_progress)
-    transcript = resp1.text
-    if resp1.usage_metadata:
-        usage.add("文字起こし", resp1.usage_metadata)
+        if on_progress:
+            on_progress("step", f"[議事録] 全{total_chunks}チャンクの文字起こしから議事録を生成中 ({lang_name})...")
 
-    if on_progress:
-        on_progress("step", f"[3/4] 議事録生成中 ({lang_name})...")
+        resp2 = summarize(client, transcript, model, lang, on_progress)
+        summary = resp2.text
+        if resp2.usage_metadata:
+            usage.add("議事録生成", resp2.usage_metadata)
 
-    resp2 = summarize(client, transcript, model, lang, on_progress)
-    summary = resp2.text
-    if resp2.usage_metadata:
-        usage.add("議事録生成", resp2.usage_metadata)
+    else:
+        # ─── 通常モード（分割不要）───
+        if on_progress:
+            on_progress("step", "[1/4] アップロード中...")
+
+        try:
+            uploaded = upload_and_wait(client, audio_file, on_progress)
+        finally:
+            if audio_tmp:
+                try:
+                    os.unlink(audio_tmp)
+                except Exception:
+                    pass
+
+        if on_progress:
+            on_progress("step", f"[2/4] 文字起こし中 ({model} / {lang_name})...")
+
+        resp1 = transcribe(client, uploaded, model, lang, on_progress)
+        transcript = resp1.text
+        if resp1.usage_metadata:
+            usage.add("文字起こし", resp1.usage_metadata)
+
+        if on_progress:
+            on_progress("step", f"[3/4] 議事録生成中 ({lang_name})...")
+
+        resp2 = summarize(client, transcript, model, lang, on_progress)
+        summary = resp2.text
+        if resp2.usage_metadata:
+            usage.add("議事録生成", resp2.usage_metadata)
+
+        # Geminiファイル削除
+        try:
+            client.files.delete(name=uploaded.name)
+        except Exception:
+            pass
 
     if on_progress:
         on_progress("step", "[4/4] ファイル保存中...")
@@ -521,12 +664,6 @@ def run_pipeline(
 
     transcript_path.write_text(transcript, encoding="utf-8")
     summary_path.write_text(summary, encoding="utf-8")
-
-    # クリーンアップ
-    try:
-        client.files.delete(name=uploaded.name)
-    except Exception:
-        pass
 
     return transcript, summary, str(transcript_path), str(summary_path), usage
 

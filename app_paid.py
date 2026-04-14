@@ -16,7 +16,7 @@ from dotenv import load_dotenv
 from gemini_transcribe_v2 import run_pipeline, MODEL_PRICING, SUPPORTED_LANGUAGES
 
 # ───────── 設定読み込み ─────────
-load_dotenv()
+load_dotenv(Path(__file__).parent / ".env")
 
 stripe.api_key = os.environ.get("STRIPE_SECRET_KEY", "")
 STRIPE_PUBLISHABLE_KEY = os.environ.get("STRIPE_PUBLISHABLE_KEY", "")
@@ -71,7 +71,7 @@ def create_checkout_session(file_id: str, file_name: str, lang: str = "ja") -> s
     base_url = st.context.headers.get("Origin", "http://localhost:8501")
 
     session = stripe.checkout.Session.create(
-        payment_method_types=["card"],
+        # payment_method_types 省略 = Stripe が Apple Pay / Google Pay / カード等を自動有効化
         mode="payment",
         line_items=[{
             "price_data": {
@@ -98,32 +98,57 @@ def create_checkout_session(file_id: str, file_name: str, lang: str = "ja") -> s
 def verify_payment(session_id: str) -> dict | None:
     """Stripe Session の決済状態を確認。paid なら metadata を返す。"""
     try:
+        if not stripe.api_key:
+            st.error("Stripe APIキーが設定されていません")
+            return None
         session = stripe.checkout.Session.retrieve(session_id)
         if session.payment_status == "paid":
+            meta = session.metadata.to_dict() if hasattr(session.metadata, "to_dict") else {}
             return {
-                "file_id": session.metadata.get("file_id"),
-                "file_name": session.metadata.get("file_name"),
-                "lang": session.metadata.get("lang", "ja"),
+                "file_id": meta.get("file_id"),
+                "file_name": meta.get("file_name"),
+                "lang": meta.get("lang", "ja"),
                 "amount": session.amount_total,
                 "currency": session.currency,
             }
+        else:
+            st.warning(f"決済ステータス: {session.payment_status}（未完了）")
     except Exception as e:
-        st.error(f"決済確認エラー: {e}")
+        import traceback
+        st.error(f"決済確認エラー: {type(e).__name__}: {e}")
+        st.code(traceback.format_exc())
     return None
 
 
 # ───────── メインフロー ─────────
-query_params = st.query_params
+def _get_param(key: str) -> str | None:
+    """query_params から安全にパラメータを取得する。"""
+    try:
+        val = st.query_params.get(key, None)
+        if val:
+            return str(val)
+    except Exception:
+        pass
+    try:
+        params = dict(st.query_params)
+        return params.get(key)
+    except Exception:
+        pass
+    return None
+
+param_cancelled = _get_param("cancelled")
+param_session_id = _get_param("session_id")
+param_file_id = _get_param("file_id")
 
 # --- キャンセル時 ---
-if query_params.get("cancelled"):
+if param_cancelled:
     st.warning("💳 決済がキャンセルされました。再度お試しください。")
     st.query_params.clear()
 
 # --- 決済完了後の処理 ---
-elif query_params.get("session_id") and query_params.get("file_id"):
-    session_id = query_params["session_id"]
-    file_id = query_params["file_id"]
+elif param_session_id and param_file_id:
+    session_id = param_session_id
+    file_id = param_file_id
 
     st.info("💳 決済を確認中...")
     payment = verify_payment(session_id)

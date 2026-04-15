@@ -3,6 +3,7 @@
 起動: streamlit run app_paid.py
 """
 
+import json
 import os
 import uuid
 import shutil
@@ -421,6 +422,32 @@ else:
             height=100, label_visibility="collapsed", key="pd_ci")
         if ref_files or paid_glossary:
             st.info("📌 参考資料/用語辞書 → **2パス校正が自動有効化**されます")
+
+    # 設定エクスポート/インポート
+    with st.expander("💾 設定の保存・読み込み（チーム共有用）", expanded=False):
+        st.caption("テンプレート・キーワード・用語辞書・要約指示をJSON形式で保存・共有できます。")
+        config_data = {
+            "version": 1,
+            "template_key": paid_template_key,
+            "custom_template": paid_custom_template if paid_template_key == "custom" else "",
+            "keywords": paid_keywords,
+            "glossary": paid_glossary,
+            "custom_instructions": paid_instructions,
+            "lang": lang,
+        }
+        st.download_button("📤 設定をエクスポート (.json)",
+            data=json.dumps(config_data, ensure_ascii=False, indent=2),
+            file_name="giji_config.json", mime="application/json",
+            use_container_width=True, key="pd_export")
+        st.markdown("---")
+        _imp = st.file_uploader("📥 設定を読み込み", type=["json"], key="pd_import")
+        if _imp:
+            try:
+                _imp_data = json.loads(_imp.read().decode("utf-8"))
+                st.success(f"✅ 読み込み完了（テンプレート: {_imp_data.get('template_key', '?')}）")
+                st.json(_imp_data)
+            except Exception as e:
+                st.error(f"読み込みエラー: {e}")
 
     if uploaded_file:
         if "file_id" not in st.session_state or st.session_state.get("file_name") != uploaded_file.name:

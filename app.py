@@ -3,6 +3,7 @@
 起動: streamlit run app.py
 """
 
+import json
 import os
 import re
 import tempfile
@@ -33,6 +34,25 @@ with st.sidebar:
                         format_func=lambda k: SUPPORTED_LANGUAGES[k], index=0)
     output_dir = st.text_input("📂 出力先フォルダ", value="output")
     output_prefix = st.text_input("📝 出力ファイル名", value="", help="空欄=ファイル名を使用")
+
+# ───────── インポート設定の適用 ─────────
+_imported = st.session_state.get("imported_config")
+if _imported and isinstance(_imported, dict):
+    _imp_note = []
+    if _imported.get("keywords"):
+        st.session_state.setdefault("_imp_keywords", _imported["keywords"])
+        _imp_note.append("キーワード")
+    if _imported.get("glossary"):
+        st.session_state.setdefault("_imp_glossary", _imported["glossary"])
+        _imp_note.append("用語辞書")
+    if _imported.get("custom_instructions"):
+        st.session_state.setdefault("_imp_instructions", _imported["custom_instructions"])
+        _imp_note.append("要約指示")
+    if _imported.get("custom_template"):
+        st.session_state.setdefault("_imp_template", _imported["custom_template"])
+        _imp_note.append("カスタムテンプレート")
+    if _imp_note:
+        st.info(f"📥 インポート設定を適用中: {', '.join(_imp_note)}")
 
 # ───────── 会議情報 ─────────
 st.subheader("📅 会議情報")
@@ -98,23 +118,61 @@ else:
 with st.expander("🔧 詳細オプション（キーワード・用語辞書・要約指示）", expanded=False):
     st.markdown("##### 🏷️ 重要キーワード")
     st.caption("固有名詞・専門用語など、正確に書き起こしたいキーワード")
-    keywords = st.text_area("キーワード", placeholder="例: MJS, シンガポール, 住宅手当, RPA",
+    keywords = st.text_area("キーワード",
+                            value=st.session_state.get("_imp_keywords", ""),
+                            placeholder="例: シンガポール, 住宅手当, RPA",
                             height=68, label_visibility="collapsed")
 
     st.markdown("##### 📖 専門用語辞書")
     st.caption("略語や専門用語の正式名称を登録すると、文字起こし・校正で使われます")
-    glossary = st.text_area("用語辞書", placeholder="例:\nMJS = ミロク情報サービス\nRPA = Robotic Process Automation\nKPI = Key Performance Indicator",
+    glossary = st.text_area("用語辞書",
+                            value=st.session_state.get("_imp_glossary", ""),
+                            placeholder="例:\nRPA = Robotic Process Automation\nKPI = Key Performance Indicator",
                             height=100, label_visibility="collapsed")
 
     st.markdown("##### 📋 要約の方針")
     guidelines = DEFAULT_SUMMARY_GUIDELINES.get(lang, DEFAULT_SUMMARY_GUIDELINES["ja"])
     st.caption(f"**デフォルト方針:**\n{guidelines}")
     custom_instructions = st.text_area("追加の要約指示",
+        value=st.session_state.get("_imp_instructions", ""),
         placeholder="例: ですます調で記載 / アクションプランを詳細に / 発言者ごとに意見を整理",
         height=100, label_visibility="collapsed")
 
     if ref_files or glossary:
         st.info("📌 参考資料または用語辞書が入力されているため、**2パス校正**が自動で有効になります（精度向上）")
+
+# ───────── 設定エクスポート/インポート ─────────
+with st.expander("💾 設定の保存・読み込み（チーム共有用）", expanded=False):
+    st.caption("テンプレート・キーワード・用語辞書・要約指示をJSONで保存・読み込みできます。チーム内で設定を共有する際にお使いください。")
+
+    config_data = {
+        "version": 1,
+        "template_key": selected_template_key,
+        "custom_template": custom_template_text if selected_template_key == "custom" else "",
+        "keywords": keywords,
+        "glossary": glossary,
+        "custom_instructions": custom_instructions,
+        "lang": lang,
+    }
+    config_json = json.dumps(config_data, ensure_ascii=False, indent=2)
+    st.download_button(
+        "📤 現在の設定をエクスポート (.json)",
+        data=config_json,
+        file_name="giji_config.json",
+        mime="application/json",
+        use_container_width=True,
+    )
+
+    st.markdown("---")
+    imported_file = st.file_uploader("📥 設定ファイルを読み込み", type=["json"], key="import_config")
+    if imported_file:
+        try:
+            imported = json.loads(imported_file.read().decode("utf-8"))
+            st.session_state["imported_config"] = imported
+            st.success(f"✅ 設定を読み込みました（テンプレート: {imported.get('template_key', '?')}）")
+            st.json(imported)
+        except Exception as e:
+            st.error(f"読み込みエラー: {e}")
 
 # ───────── 実行 ─────────
 run_button = st.button("▶ 文字起こし・要約 開始", type="primary", disabled=not uploaded_file, use_container_width=True)

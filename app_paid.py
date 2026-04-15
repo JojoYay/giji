@@ -13,7 +13,10 @@ import streamlit as st
 import stripe
 from dotenv import load_dotenv
 
-from gemini_transcribe_v2 import run_pipeline, MODEL_PRICING, SUPPORTED_LANGUAGES, DEFAULT_SUMMARY_GUIDELINES
+from gemini_transcribe_v2 import (
+    run_pipeline, MODEL_PRICING, SUPPORTED_LANGUAGES,
+    DEFAULT_SUMMARY_GUIDELINES, MeetingContext,
+)
 
 # ───────── 設定読み込み ─────────
 load_dotenv(Path(__file__).parent / ".env")
@@ -216,9 +219,9 @@ elif param_session_id and param_file_id:
         elif kind == "upload_done":
             status_text.text(f"  アップロード完了: {msg}  (経過: {elapsed_str})")
 
-    # session_stateからカスタム指示を取得
-    kw = st.session_state.get("paid_keywords", "")
-    ci = st.session_state.get("paid_instructions", "")
+    # session_stateからMeetingContext・参考資料を取得
+    ctx = st.session_state.get("paid_ctx", MeetingContext())
+    ref_paths = st.session_state.get("paid_ref_paths", [])
 
     try:
         transcript, summary, t_path, s_path, usage = run_pipeline(
@@ -226,8 +229,8 @@ elif param_session_id and param_file_id:
             api_key=GEMINI_API_KEY,
             model=MODEL,
             lang=payment["lang"],
-            keywords=kw,
-            custom_instructions=ci,
+            ctx=ctx,
+            reference_files=ref_paths or None,
             output_dir="output",
             output_prefix=Path(payment["file_name"]).stem,
             on_progress=on_progress,
@@ -339,81 +342,98 @@ if st.session_state.get("result_ready"):
 
 # --- 通常（ファイルアップロード画面）---
 else:
+    import datetime as _dt
+
     st.markdown(f"""
     ### 使い方
-    1. 音声/動画ファイルをアップロード
+    1. 会議情報を入力 → 音声/動画ファイルをアップロード
     2. 💳 **¥{PRICE_JPY:,}** でお支払い（クレジットカード）
-    3. 文字起こし＋議事録が生成されます
+    3. 高精度な文字起こし＋議事録が生成されます
     """)
 
-    lang = st.selectbox(
-        "🌐 出力言語 / Output Language",
-        options=list(SUPPORTED_LANGUAGES.keys()),
-        format_func=lambda k: SUPPORTED_LANGUAGES[k],
-        index=0,
-    )
+    # 会議情報
+    st.subheader("📅 会議情報")
+    col_date, col_time = st.columns(2)
+    with col_date:
+        meeting_date = st.date_input("日付", value=_dt.date.today(), key="pd_date")
+    with col_time:
+        meeting_time = st.text_input("時刻", placeholder="例: 10:00-12:00", key="pd_time")
 
-    with st.expander("🔧 詳細オプション（キーワード・要約指示）", expanded=False):
+    col_topic, col_participants = st.columns(2)
+    with col_topic:
+        meeting_topic = st.text_input("🎯 会議テーマ", placeholder="例: Q2売上レビュー", key="pd_topic")
+    with col_participants:
+        meeting_participants = st.text_input("👥 参加者", placeholder="例: 山田, 吉田, 渡辺", key="pd_parts")
+
+    lang = st.selectbox("🌐 出力言語", options=list(SUPPORTED_LANGUAGES.keys()),
+                        format_func=lambda k: SUPPORTED_LANGUAGES[k], index=0, key="pd_lang")
+
+    # ファイル
+    st.subheader("📁 ファイル")
+    uploaded_file = st.file_uploader("🎤 音声/動画ファイル",
+        type=["mp4", "m4a", "wav", "mp3", "webm", "ogg", "flac"], key="pd_audio")
+    if uploaded_file:
+        st.info(f"📁 **{uploaded_file.name}** ({uploaded_file.size / (1024*1024):.1f} MB)")
+
+    ref_files = st.file_uploader("📄 参考資料（任意）",
+        type=["pdf", "txt", "docx", "pptx", "xlsx", "csv", "md"],
+        accept_multiple_files=True, key="pd_refs",
+        help="会議関連のPDF・スライド等 → 文字起こし精度が向上")
+
+    # 詳細オプション
+    with st.expander("🔧 詳細オプション", expanded=False):
         st.markdown("##### 🏷️ 重要キーワード")
-        st.caption("固有名詞・専門用語など、正確に書き起こしたいキーワード")
-        paid_keywords = st.text_area(
-            "キーワード",
-            placeholder="例: MJS, シンガポール, 住宅手当",
-            height=68, label_visibility="collapsed", key="kw_input",
-        )
-
+        paid_keywords = st.text_area("キーワード", placeholder="例: MJS, 住宅手当",
+                                     height=68, label_visibility="collapsed", key="pd_kw")
+        st.markdown("##### 📖 専門用語辞書")
+        paid_glossary = st.text_area("用語辞書", placeholder="例:\nMJS = ミロク情報サービス\nRPA = Robotic Process Automation",
+                                     height=100, label_visibility="collapsed", key="pd_gls")
         st.markdown("##### 📋 要約の方針")
         guidelines = DEFAULT_SUMMARY_GUIDELINES.get(lang, DEFAULT_SUMMARY_GUIDELINES["ja"])
-        st.caption(f"**デフォルトの要約方針:**\n{guidelines}")
-        paid_instructions = st.text_area(
-            "追加の要約指示",
-            placeholder="例: ですます調で記載 / アクションプランを詳細に / 箇条書きで整理",
-            height=100, label_visibility="collapsed", key="ci_input",
-        )
-
-    uploaded_file = st.file_uploader(
-        "🎤 音声/動画ファイルを選択",
-        type=["mp4", "m4a", "wav", "mp3", "webm", "ogg", "flac"],
-        help="対応形式: mp4, m4a, wav, mp3, webm, ogg, flac",
-    )
+        st.caption(f"**デフォルト:** {guidelines}")
+        paid_instructions = st.text_area("追加の要約指示",
+            placeholder="例: ですます調 / アクションプラン詳細 / 箇条書き",
+            height=100, label_visibility="collapsed", key="pd_ci")
+        if ref_files or paid_glossary:
+            st.info("📌 参考資料/用語辞書 → **2パス校正が自動有効化**されます")
 
     if uploaded_file:
-        file_size_mb = uploaded_file.size / (1024 * 1024)
-        st.info(f"📁 **{uploaded_file.name}** ({file_size_mb:.1f} MB)")
-
-        # ファイルを一時保存
         if "file_id" not in st.session_state or st.session_state.get("file_name") != uploaded_file.name:
             st.session_state.file_id = save_upload(uploaded_file)
             st.session_state.file_name = uploaded_file.name
 
-        # 決済ボタン
-        if st.button(
-            f"💳 ¥{PRICE_JPY:,} で文字起こし・議事録を生成",
-            type="primary",
-            use_container_width=True,
-        ):
+        # 参考資料を一時保存
+        ref_paths = []
+        for rf in ref_files:
+            ref_id = uuid.uuid4().hex[:8]
+            dest = UPLOAD_DIR / f"ref_{ref_id}{Path(rf.name).suffix}"
+            dest.write_bytes(rf.getbuffer())
+            ref_paths.append(str(dest))
+
+        if st.button(f"💳 ¥{PRICE_JPY:,} で文字起こし・議事録を生成",
+                     type="primary", use_container_width=True):
             if not stripe.api_key or stripe.api_key.startswith("sk_test_ここに"):
-                st.error("Stripe APIキーが設定されていません。.env を確認してください。")
+                st.error("Stripe APIキーが設定されていません")
                 st.stop()
 
-            # キーワード・指示をsession_stateに保存
-            st.session_state["paid_keywords"] = paid_keywords
-            st.session_state["paid_instructions"] = paid_instructions
+            # session_stateに全パラメータ保存
+            st.session_state["paid_ctx"] = MeetingContext(
+                date=str(meeting_date), time=meeting_time,
+                topic=meeting_topic, participants=meeting_participants,
+                keywords=paid_keywords, glossary=paid_glossary,
+                custom_instructions=paid_instructions,
+            )
+            st.session_state["paid_ref_paths"] = ref_paths
 
             with st.spinner("決済ページを準備中..."):
                 checkout_url = create_checkout_session(
                     file_id=st.session_state.file_id,
-                    file_name=uploaded_file.name,
-                    lang=lang,
+                    file_name=uploaded_file.name, lang=lang,
                 )
 
-            st.markdown(
-                f'<meta http-equiv="refresh" content="0;url={checkout_url}">',
-                unsafe_allow_html=True,
-            )
-            st.info("💳 Stripe決済ページに移動します... 自動で移動しない場合は下のボタンをクリック")
+            st.markdown(f'<meta http-equiv="refresh" content="0;url={checkout_url}">', unsafe_allow_html=True)
+            st.info("💳 Stripe決済ページに移動します...")
             st.link_button("💳 決済ページを開く", checkout_url, use_container_width=True)
 
-    # フッター
     st.divider()
     st.caption("Powered by Google Gemini API | 決済: Stripe")

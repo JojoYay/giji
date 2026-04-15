@@ -236,30 +236,175 @@ DEFAULT_SUMMARY_GUIDELINES = {
 }
 
 
-def get_transcript_prompt(lang: str = "ja", keywords: str = "") -> str:
+@dataclass
+class MeetingContext:
+    """会議のメタ情報と追加コンテキスト。"""
+    date: str = ""              # "2024-04-14"
+    time: str = ""              # "10:00-12:00"
+    topic: str = ""             # "住宅手当の減額に関する協議"
+    participants: str = ""      # "山田, 吉田, 渡辺"
+    keywords: str = ""          # "住宅手当, 内部通報, MJS"
+    glossary: str = ""          # "MJS=ミロク情報サービス\nRPA=Robotic Process Automation"
+    custom_instructions: str = ""  # "ですます調で / アクションプランを詳細に"
+    reference_texts: list = field(default_factory=list)  # 参考資料のテキスト抽出結果
+
+
+def _build_context_block(ctx: MeetingContext, lang: str = "ja") -> str:
+    """MeetingContext から追加プロンプトブロックを構築する。"""
+    parts = []
+
+    if lang == "ja":
+        if ctx.date or ctx.time:
+            dt = f"{ctx.date} {ctx.time}".strip()
+            parts.append(f"【会議日時】{dt}")
+        if ctx.topic:
+            parts.append(f"【会議テーマ・議題】{ctx.topic}")
+        if ctx.participants:
+            parts.append(f"【参加者】{ctx.participants}\n※ 音声の話者をできる限りこの参加者名に紐づけてください。")
+        if ctx.keywords:
+            parts.append(f"【重要キーワード】\n以下の用語が登場する可能性があります。正確に書き起こしてください:\n{ctx.keywords}")
+        if ctx.glossary:
+            parts.append(f"【専門用語辞書】\n以下の略語・専門用語を正しく使用してください:\n{ctx.glossary}")
+        if ctx.reference_texts:
+            parts.append("【参考資料の内容（抜粋）】\n以下は会議に関連する参考資料です。この中の用語・固有名詞を正確に使用してください:")
+            for i, txt in enumerate(ctx.reference_texts, 1):
+                parts.append(f"--- 資料{i} ---\n{txt[:3000]}")
+    else:
+        labels = {
+            "en": {"dt": "Meeting Date/Time", "topic": "Meeting Topic", "participants": "Participants",
+                   "kw": "Key Terms", "glossary": "Glossary", "ref": "Reference Materials",
+                   "participant_note": "Please try to match speakers to these participant names.",
+                   "kw_note": "The following terms may appear. Transcribe them accurately:",
+                   "glossary_note": "Use these abbreviations/terms correctly:",
+                   "ref_note": "Below are excerpts from reference materials. Use the terms and proper nouns from these accurately:"},
+            "zh": {"dt": "会议日期时间", "topic": "会议主题", "participants": "参会人员",
+                   "kw": "重要术语", "glossary": "专业术语表", "ref": "参考资料",
+                   "participant_note": "请尽量将发言人与以上参会人员对应。",
+                   "kw_note": "以下术语可能出现，请准确转录:", "glossary_note": "请正确使用以下缩写/术语:",
+                   "ref_note": "以下是参考资料摘录，请准确使用其中的术语和专有名词:"},
+            "ms": {"dt": "Tarikh/Masa Mesyuarat", "topic": "Topik Mesyuarat", "participants": "Peserta",
+                   "kw": "Istilah Penting", "glossary": "Glosari", "ref": "Bahan Rujukan",
+                   "participant_note": "Sila padankan penutur dengan nama peserta ini.",
+                   "kw_note": "Istilah berikut mungkin muncul. Transkripsi dengan tepat:",
+                   "glossary_note": "Gunakan singkatan/istilah ini dengan betul:",
+                   "ref_note": "Berikut adalah petikan bahan rujukan. Gunakan istilah dan nama khas dengan tepat:"},
+        }
+        L = labels.get(lang, labels["en"])
+        if ctx.date or ctx.time:
+            parts.append(f"[{L['dt']}] {ctx.date} {ctx.time}".strip())
+        if ctx.topic:
+            parts.append(f"[{L['topic']}] {ctx.topic}")
+        if ctx.participants:
+            parts.append(f"[{L['participants']}] {ctx.participants}\n{L['participant_note']}")
+        if ctx.keywords:
+            parts.append(f"[{L['kw']}]\n{L['kw_note']}\n{ctx.keywords}")
+        if ctx.glossary:
+            parts.append(f"[{L['glossary']}]\n{L['glossary_note']}\n{ctx.glossary}")
+        if ctx.reference_texts:
+            parts.append(f"[{L['ref']}]\n{L['ref_note']}")
+            for i, txt in enumerate(ctx.reference_texts, 1):
+                parts.append(f"--- Doc {i} ---\n{txt[:3000]}")
+
+    return "\n\n".join(parts)
+
+
+def get_transcript_prompt(lang: str = "ja", ctx: MeetingContext | None = None) -> str:
     prompt = TRANSCRIPT_PROMPTS.get(lang, TRANSCRIPT_PROMPTS["ja"])
-    if keywords:
-        keyword_instruction = {
-            "ja": f"\n【重要キーワード】\n以下のキーワードが登場する可能性があります。正確に書き起こしてください:\n{keywords}\n",
-            "en": f"\n[Important Keywords]\nThe following keywords may appear. Please transcribe them accurately:\n{keywords}\n",
-            "zh": f"\n【重要关键词】\n以下关键词可能出现，请准确转录:\n{keywords}\n",
-            "ms": f"\n[Kata Kunci Penting]\nKata kunci berikut mungkin muncul. Sila transkripsi dengan tepat:\n{keywords}\n",
-        }
-        prompt += keyword_instruction.get(lang, keyword_instruction["ja"])
+    if ctx:
+        block = _build_context_block(ctx, lang)
+        if block:
+            prompt += "\n" + block + "\n"
     return prompt
 
 
-def get_summary_prompt(lang: str = "ja", custom_instructions: str = "") -> str:
+def get_summary_prompt(lang: str = "ja", ctx: MeetingContext | None = None) -> str:
     prompt = SUMMARY_PROMPTS.get(lang, SUMMARY_PROMPTS["ja"])
-    if custom_instructions:
-        injection = {
-            "ja": f"\n【追加の要約指示】\n以下の指示にも従ってください:\n{custom_instructions}\n",
-            "en": f"\n[Additional Instructions]\nPlease also follow these instructions:\n{custom_instructions}\n",
-            "zh": f"\n【额外要约指示】\n请同时遵循以下指示:\n{custom_instructions}\n",
-            "ms": f"\n[Arahan Tambahan]\nSila ikut juga arahan berikut:\n{custom_instructions}\n",
-        }
-        prompt += injection.get(lang, injection["ja"])
+    if ctx:
+        # 会議メタ情報を要約プロンプトにも注入
+        meta_parts = []
+        if ctx.date or ctx.time:
+            meta_parts.append(f"日時: {ctx.date} {ctx.time}".strip())
+        if ctx.topic:
+            meta_parts.append(f"テーマ: {ctx.topic}")
+        if ctx.participants:
+            meta_parts.append(f"参加者: {ctx.participants}")
+        if meta_parts:
+            prompt = prompt.replace("{transcript}", "\n".join(meta_parts) + "\n\n{transcript}")
+        if ctx.custom_instructions:
+            injection = {
+                "ja": f"\n【追加の要約指示】\n以下の指示にも従ってください:\n{ctx.custom_instructions}\n",
+                "en": f"\n[Additional Instructions]\nPlease also follow these instructions:\n{ctx.custom_instructions}\n",
+                "zh": f"\n【额外要约指示】\n请同时遵循以下指示:\n{ctx.custom_instructions}\n",
+                "ms": f"\n[Arahan Tambahan]\nSila ikut juga arahan berikut:\n{ctx.custom_instructions}\n",
+            }
+            prompt += injection.get(lang, injection["ja"])
     return prompt
+
+
+# ───────── 2パス校正プロンプト ─────────
+
+CORRECTION_PROMPTS = {
+    "ja": """\
+以下は会議音声の粗い文字起こしです。参考資料・会議コンテキスト・専門用語辞書をもとに校正してください。
+
+【校正ルール】
+- 専門用語・固有名詞を参考資料の表記に統一する
+- 話者名をできる限り参加者名に紐づける
+- 明らかな聞き間違い・誤変換を修正する
+- タイムスタンプと発言のフォーマットは維持する
+- 修正できない不明瞭な箇所はそのまま残す
+
+{context_block}
+
+--- 粗い文字起こし ---
+{raw_transcript}
+""",
+    "en": """\
+Below is a rough transcription of a meeting. Please correct it using the reference materials, meeting context, and glossary.
+
+[Correction Rules]
+- Unify technical terms and proper nouns to match reference materials
+- Map speaker labels to participant names where possible
+- Fix obvious mishearings and transcription errors
+- Maintain timestamp and speaker format
+- Keep unclear parts as-is if they cannot be resolved
+
+{context_block}
+
+--- Rough Transcription ---
+{raw_transcript}
+""",
+    "zh": """\
+以下是会议录音的初步转录。请根据参考资料、会议背景和术语表进行校正。
+
+【校正规则】
+- 将专业术语和专有名词统一为参考资料中的表述
+- 尽可能将发言人与参会人员对应
+- 修正明显的听错和转录错误
+- 保持时间戳和发言格式
+- 无法解决的不清楚部分保持原样
+
+{context_block}
+
+--- 初步转录 ---
+{raw_transcript}
+""",
+    "ms": """\
+Berikut ialah transkripsi kasar rakaman mesyuarat. Sila betulkan menggunakan bahan rujukan, konteks mesyuarat, dan glosari.
+
+[Peraturan Pembetulan]
+- Seragamkan istilah teknikal dan nama khas mengikut bahan rujukan
+- Padankan label penutur dengan nama peserta jika boleh
+- Betulkan kesilapan pendengaran dan transkripsi yang jelas
+- Kekalkan format cap masa dan penutur
+- Kekalkan bahagian yang tidak jelas jika tidak dapat diselesaikan
+
+{context_block}
+
+--- Transkripsi Kasar ---
+{raw_transcript}
+"""
+}
 
 # ───────── 料金テーブル (USD per 1M tokens) ─────────
 # https://ai.google.dev/gemini-api/docs/pricing
@@ -395,6 +540,47 @@ def _extract_audio(file_path: str, on_progress=None) -> str | None:
     size_mb = Path(tmp.name).stat().st_size / (1024 * 1024)
     if on_progress:
         on_progress("step", f"[前処理] 音声抽出完了 ({size_mb:.1f} MB)")
+    return tmp.name
+
+
+def _normalize_audio(file_path: str, on_progress=None) -> str | None:
+    """音声のノイズ除去と音量正規化を行い、一時ファイルのパスを返す。"""
+    ffmpeg_bin = _get_ffmpeg()
+    if not ffmpeg_bin:
+        return None
+
+    if on_progress:
+        on_progress("step", "[前処理] 音声ノイズ除去・音量正規化中...")
+
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".m4a", prefix="norm_")
+    tmp.close()
+
+    # highpass: 低周波ノイズ除去, afftdn: FFTベースノイズ除去, loudnorm: 音量正規化
+    cmd = [
+        ffmpeg_bin, "-y", "-i", file_path,
+        "-af", "highpass=f=80,afftdn=nf=-25,loudnorm=I=-16:TP=-1.5:LRA=11",
+        "-acodec", "aac", "-b:a", "64k", "-ac", "1", "-ar", "16000",
+        tmp.name,
+    ]
+    result = subprocess.run(cmd, capture_output=True)
+    if result.returncode != 0:
+        # フィルター非対応の場合は loudnorm のみ
+        cmd = [
+            ffmpeg_bin, "-y", "-i", file_path,
+            "-af", "loudnorm=I=-16:TP=-1.5:LRA=11",
+            "-acodec", "aac", "-b:a", "64k", "-ac", "1", "-ar", "16000",
+            tmp.name,
+        ]
+        result = subprocess.run(cmd, capture_output=True)
+        if result.returncode != 0:
+            try:
+                os.unlink(tmp.name)
+            except Exception:
+                pass
+            return None
+
+    if on_progress:
+        on_progress("step", "[前処理] 音声正規化完了")
     return tmp.name
 
 
@@ -554,24 +740,37 @@ def _generate_with_retry(client, model, contents, on_progress=None, label=""):
                 raise
 
 
-def transcribe(client, uploaded, model, lang="ja", keywords="", on_progress=None):
+def transcribe(client, uploaded, model, lang="ja", ctx=None, on_progress=None):
     """アップロード済みファイルから文字起こしを実行する。response を返す。"""
     return _generate_with_retry(
         client, model,
         contents=[
             types.Part.from_uri(file_uri=uploaded.uri, mime_type=uploaded.mime_type),
-            get_transcript_prompt(lang, keywords),
+            get_transcript_prompt(lang, ctx),
         ],
         on_progress=on_progress,
         label="文字起こし",
     )
 
 
-def summarize(client, transcript_text, model, lang="ja", custom_instructions="", on_progress=None):
+def correct_transcript(client, raw_transcript, model, lang="ja", ctx=None, on_progress=None):
+    """2パス目: 粗い文字起こしを参考資料・辞書で校正する。response を返す。"""
+    prompt_template = CORRECTION_PROMPTS.get(lang, CORRECTION_PROMPTS["ja"])
+    context_block = _build_context_block(ctx, lang) if ctx else ""
+    prompt = prompt_template.format(context_block=context_block, raw_transcript=raw_transcript)
+    return _generate_with_retry(
+        client, model,
+        contents=prompt,
+        on_progress=on_progress,
+        label="校正",
+    )
+
+
+def summarize(client, transcript_text, model, lang="ja", ctx=None, on_progress=None):
     """文字起こしテキストから議事録要約を生成する。response を返す。"""
     return _generate_with_retry(
         client, model,
-        contents=get_summary_prompt(lang, custom_instructions).format(transcript=transcript_text),
+        contents=get_summary_prompt(lang, ctx).format(transcript=transcript_text),
         on_progress=on_progress,
         label="議事録生成",
     )
@@ -584,8 +783,8 @@ def run_pipeline(
     api_key: str,
     model: str = "gemini-2.5-flash",
     lang: str = "ja",
-    keywords: str = "",
-    custom_instructions: str = "",
+    ctx: MeetingContext | None = None,
+    reference_files: list[str] | None = None,
     output_dir: str = ".",
     output_prefix: str | None = None,
     on_progress=None,
@@ -594,8 +793,8 @@ def run_pipeline(
 
     Args:
         lang: 出力言語コード ("ja", "en", "zh", "ms")
-        keywords: 文字起こし時の重要キーワード
-        custom_instructions: 要約時のカスタム指示
+        ctx: 会議メタ情報・キーワード・指示等
+        reference_files: 参考資料ファイルパスのリスト (PDF等)
 
     Returns:
         (transcript_text, summary_text, transcript_path, summary_path, usage_stats)
@@ -604,25 +803,65 @@ def run_pipeline(
     fp = Path(file_path)
     usage = UsageStats()
     lang_name = SUPPORTED_LANGUAGES.get(lang, lang)
+    if ctx is None:
+        ctx = MeetingContext()
 
-    # 動画の場合、音声のみ抽出してアップロードサイズを削減
+    # ─── 参考資料のテキスト抽出 ───
+    if reference_files:
+        if on_progress:
+            on_progress("step", f"[前処理] 参考資料を読み込み中 ({len(reference_files)}件)...")
+        for ref_path in reference_files:
+            try:
+                ref_uploaded = upload_and_wait(client, ref_path, on_progress=None)
+                resp = _generate_with_retry(
+                    client, model,
+                    contents=[
+                        types.Part.from_uri(file_uri=ref_uploaded.uri, mime_type=ref_uploaded.mime_type),
+                        "この文書の主要な内容・用語・固有名詞を箇条書きで要約してください。",
+                    ],
+                    label="資料読み込み",
+                )
+                ctx.reference_texts.append(resp.text)
+                if resp.usage_metadata:
+                    usage.add(f"資料読み込み ({Path(ref_path).name})", resp.usage_metadata)
+                try:
+                    client.files.delete(name=ref_uploaded.name)
+                except Exception:
+                    pass
+            except Exception as e:
+                if on_progress:
+                    on_progress("step", f"  ⚠️ 資料読み込みエラー: {Path(ref_path).name}: {e}")
+
+    # ─── 動画→音声抽出 ───
     audio_tmp = _extract_audio(str(fp), on_progress)
     audio_file = audio_tmp or str(fp)
 
-    # 音声が長い場合はチャンク分割
+    # ─── 音声前処理（ノイズ除去・音量正規化）───
+    normalized_tmp = _normalize_audio(audio_file, on_progress)
+    if normalized_tmp:
+        if audio_tmp:
+            try:
+                os.unlink(audio_tmp)
+            except Exception:
+                pass
+        audio_file = normalized_tmp
+        audio_tmp = normalized_tmp  # クリーンアップ用に追跡
+
+    # ─── 2パス判定: 参考資料・辞書がある場合は2パス ───
+    use_two_pass = bool(ctx.reference_texts or ctx.glossary)
+
+    # ─── 音声分割 ───
     chunks = _split_audio(audio_file, on_progress=on_progress)
 
+    # ─── Pass 1: 文字起こし ───
     if chunks:
-        # ─── 分割モード ───
         total_chunks = len(chunks)
         all_transcripts = []
 
         for idx, chunk_path in enumerate(chunks, 1):
             chunk_label = f"チャンク {idx}/{total_chunks}"
-
             if on_progress:
                 on_progress("step", f"[{idx}/{total_chunks}] アップロード中...")
-
             try:
                 uploaded = upload_and_wait(client, chunk_path, on_progress)
             finally:
@@ -634,18 +873,15 @@ def run_pipeline(
             if on_progress:
                 on_progress("step", f"[{idx}/{total_chunks}] 文字起こし中 ({lang_name})...")
 
-            resp = transcribe(client, uploaded, model, lang, keywords, on_progress)
+            resp = transcribe(client, uploaded, model, lang, ctx, on_progress)
             all_transcripts.append(resp.text)
             if resp.usage_metadata:
                 usage.add(f"文字起こし ({chunk_label})", resp.usage_metadata)
-
-            # Geminiアップロードファイル削除
             try:
                 client.files.delete(name=uploaded.name)
             except Exception:
                 pass
 
-        # 元の音声一時ファイル削除
         if audio_tmp:
             try:
                 os.unlink(audio_tmp)
@@ -653,20 +889,9 @@ def run_pipeline(
                 pass
 
         transcript = "\n\n".join(all_transcripts)
-
-        if on_progress:
-            on_progress("step", f"[議事録] 全{total_chunks}チャンクの文字起こしから議事録を生成中 ({lang_name})...")
-
-        resp2 = summarize(client, transcript, model, lang, custom_instructions, on_progress)
-        summary = resp2.text
-        if resp2.usage_metadata:
-            usage.add("議事録生成", resp2.usage_metadata)
-
     else:
-        # ─── 通常モード（分割不要）───
         if on_progress:
             on_progress("step", "[1/4] アップロード中...")
-
         try:
             uploaded = upload_and_wait(client, audio_file, on_progress)
         finally:
@@ -679,24 +904,33 @@ def run_pipeline(
         if on_progress:
             on_progress("step", f"[2/4] 文字起こし中 ({model} / {lang_name})...")
 
-        resp1 = transcribe(client, uploaded, model, lang, keywords, on_progress)
+        resp1 = transcribe(client, uploaded, model, lang, ctx, on_progress)
         transcript = resp1.text
         if resp1.usage_metadata:
             usage.add("文字起こし", resp1.usage_metadata)
-
-        if on_progress:
-            on_progress("step", f"[3/4] 議事録生成中 ({lang_name})...")
-
-        resp2 = summarize(client, transcript, model, lang, custom_instructions, on_progress)
-        summary = resp2.text
-        if resp2.usage_metadata:
-            usage.add("議事録生成", resp2.usage_metadata)
-
-        # Geminiファイル削除
         try:
             client.files.delete(name=uploaded.name)
         except Exception:
             pass
+
+    # ─── Pass 2: 校正（参考資料・辞書がある場合）───
+    if use_two_pass:
+        if on_progress:
+            on_progress("step", "[校正] 参考資料・用語辞書と照合して校正中...")
+        resp_correct = correct_transcript(client, transcript, model, lang, ctx, on_progress)
+        transcript = resp_correct.text
+        if resp_correct.usage_metadata:
+            usage.add("2パス校正", resp_correct.usage_metadata)
+
+    # ─── 議事録生成 ───
+    if on_progress:
+        label = f"[議事録] 議事録生成中 ({lang_name})..." if chunks else f"[3/4] 議事録生成中 ({lang_name})..."
+        on_progress("step", label)
+
+    resp2 = summarize(client, transcript, model, lang, ctx, on_progress)
+    summary = resp2.text
+    if resp2.usage_metadata:
+        usage.add("議事録生成", resp2.usage_metadata)
 
     if on_progress:
         on_progress("step", "[4/4] ファイル保存中...")
@@ -727,8 +961,14 @@ def main():
     parser.add_argument("--lang", default="ja",
                         choices=list(SUPPORTED_LANGUAGES.keys()),
                         help="出力言語 (ja/en/zh/ms)")
+    parser.add_argument("--date", default="", help="会議日付 (例: 2024-04-14)")
+    parser.add_argument("--time", default="", help="会議時刻 (例: 10:00-12:00)")
+    parser.add_argument("--topic", default="", help="会議テーマ・議題")
+    parser.add_argument("--participants", default="", help="参加者名（カンマ区切り）")
     parser.add_argument("--keywords", default="", help="重要キーワード（カンマ区切り）")
+    parser.add_argument("--glossary", default="", help="専門用語辞書 (形式: 略語=正式名, ...)")
     parser.add_argument("--instructions", default="", help="要約のカスタム指示")
+    parser.add_argument("--references", nargs="*", default=[], help="参考資料ファイル (PDF等)")
     parser.add_argument("--output_dir", default=".", help="出力先フォルダ")
     parser.add_argument("--output_prefix", default=None, help="出力ファイル名プレフィックス")
     args = parser.parse_args()
@@ -755,15 +995,27 @@ def main():
         elif kind == "upload_done":
             print(f"      アップロード完了: {msg}")
 
+    ctx = MeetingContext(
+        date=args.date,
+        time=args.time,
+        topic=args.topic,
+        participants=args.participants,
+        keywords=args.keywords,
+        glossary=args.glossary.replace(",", "\n") if args.glossary else "",
+        custom_instructions=args.instructions,
+    )
+
     print(f"出力言語: {SUPPORTED_LANGUAGES.get(args.lang, args.lang)}")
+    if ctx.topic:
+        print(f"テーマ: {ctx.topic}")
 
     transcript, summary, t_path, s_path, usage = run_pipeline(
         file_path=str(fp),
         api_key=api_key,
         model=args.model,
         lang=args.lang,
-        keywords=args.keywords,
-        custom_instructions=args.instructions,
+        ctx=ctx,
+        reference_files=args.references or None,
         output_dir=args.output_dir,
         output_prefix=args.output_prefix,
         on_progress=cli_progress,

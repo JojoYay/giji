@@ -384,10 +384,10 @@ else:
     paid_custom_template = ""
     _def_tpl = SUMMARY_TEMPLATES[paid_template_key]["template"].get(lang, "")
     if paid_template_key == "custom":
-        paid_custom_template = st.text_area("テンプレート編集", value="", height=300, key="pd_ctpl")
+        paid_custom_template = st.text_area("テンプレート編集", value="", height=300, key=f"pd_ctpl_{lang}")
     else:
         with st.expander("📖 テンプレートプレビュー・編集"):
-            _ed_tpl = st.text_area("テンプレート", value=_def_tpl, height=250, key="pd_tpl_edit")
+            _ed_tpl = st.text_area("テンプレート", value=_def_tpl, height=250, key=f"pd_tpl_edit_{lang}_{paid_template_key}")
             if _ed_tpl != _def_tpl:
                 paid_template_key = "custom"
                 paid_custom_template = _ed_tpl

@@ -86,10 +86,10 @@ custom_template_text = ""
 default_tpl = SUMMARY_TEMPLATES[selected_template_key]["template"].get(lang, "")
 if selected_template_key == "custom":
     st.caption("自由にテンプレートを作成してください。Markdown形式の見出し（## ）でセクションを定義します。")
-    custom_template_text = st.text_area("テンプレート編集", value="", height=300, key="custom_tpl")
+    custom_template_text = st.text_area("テンプレート編集", value="", height=300, key=f"custom_tpl_{lang}")
 else:
     with st.expander("📖 テンプレートをプレビュー・編集", expanded=False):
-        edited_tpl = st.text_area("テンプレート", value=default_tpl, height=300, key="tpl_edit")
+        edited_tpl = st.text_area("テンプレート", value=default_tpl, height=300, key=f"tpl_edit_{lang}_{selected_template_key}")
         if edited_tpl != default_tpl:
             selected_template_key = "custom"
             custom_template_text = edited_tpl

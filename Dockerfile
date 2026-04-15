@@ -19,6 +19,7 @@ COPY .streamlit/config.toml .streamlit/config.toml
 
 # nginx設定（大容量アップロード対応）
 COPY nginx.conf /etc/nginx/sites-available/default
+RUN sed -i '/http {/a \    client_max_body_size 0;' /etc/nginx/nginx.conf
 
 # 起動スクリプト
 COPY entrypoint.sh /app/entrypoint.sh

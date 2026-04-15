@@ -12,7 +12,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # アプリケーション
-COPY gemini_transcribe_v2.py app_paid.py ./
+COPY gemini_transcribe_v2.py app_paid.py gcs_upload.py ./
 
 # Streamlit設定ファイル
 COPY .streamlit/config.toml .streamlit/config.toml

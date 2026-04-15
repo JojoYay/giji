@@ -41,4 +41,4 @@ jobs:
             --timeout=3600 \
             --port=8080 \
             --set-secrets="GEMINI_API_KEY=GEMINI_API_KEY:latest,STRIPE_SECRET_KEY=STRIPE_SECRET_KEY:latest,STRIPE_PUBLISHABLE_KEY=STRIPE_PUBLISHABLE_KEY:latest" \
-            --set-env-vars="STRIPE_PRICE_JPY=500"
+            --set-env-vars="STRIPE_PRICE_JPY=500,GCS_BUCKET=giji-uploads-geminipoc"

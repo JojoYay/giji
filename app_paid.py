@@ -163,8 +163,20 @@ elif param_session_id and param_file_id:
 
     st.success(f"✅ 決済完了！ ¥{payment['amount']:,} — 処理を開始します...")
 
-    file_path = get_upload_path(file_id)
-    if not file_path:
+    # GCSモード: blobからダウンロード / ローカルモード: 一時ファイルから取得
+    _gcs_tmp = None
+    if file_id.startswith("uploads/"):
+        try:
+            from gcs_upload import download_from_gcs
+            _gcs_tmp = download_from_gcs(file_id)
+            file_path = Path(_gcs_tmp)
+        except Exception as e:
+            st.error(f"GCSからのダウンロードに失敗: {e}")
+            st.stop()
+    else:
+        file_path = get_upload_path(file_id)
+
+    if not file_path or not Path(file_path).exists():
         st.error("ファイルが見つかりません。再度アップロードしてください。")
         st.stop()
 
@@ -264,7 +276,19 @@ elif param_session_id and param_file_id:
         st.error(f"処理エラー: {e}")
 
     finally:
-        cleanup_upload(file_id)
+        if file_id.startswith("uploads/"):
+            try:
+                from gcs_upload import delete_from_gcs
+                delete_from_gcs(file_id)
+            except Exception:
+                pass
+        else:
+            cleanup_upload(file_id)
+        if _gcs_tmp and os.path.exists(_gcs_tmp):
+            try:
+                os.unlink(_gcs_tmp)
+            except Exception:
+                pass
         st.query_params.clear()
 
 # ───── 結果表示（処理完了後）─────
@@ -394,12 +418,113 @@ else:
                 paid_custom_template = _ed_tpl
                 st.info("カスタムテンプレートとして使用します。")
 
-    # ファイル
+    # ファイル — GCSダイレクトアップロード対応
     st.subheader("📁 ファイル")
-    uploaded_file = st.file_uploader("🎤 音声/動画ファイル",
-        type=["mp4", "m4a", "wav", "mp3", "webm", "ogg", "flac"], key="pd_audio")
-    if uploaded_file:
-        st.info(f"📁 **{uploaded_file.name}** ({uploaded_file.size / (1024*1024):.1f} MB)")
+    _use_gcs = os.environ.get("GCS_BUCKET", "")
+
+    if _use_gcs:
+        # Cloud Run環境: GCSにダイレクトアップロード
+        from gcs_upload import generate_resumable_upload_url, download_from_gcs, delete_from_gcs
+        import streamlit.components.v1 as components
+
+        if "gcs_blob" not in st.session_state:
+            st.session_state.gcs_blob = None
+            st.session_state.gcs_filename = None
+
+        _upload_triggered = st.button("📂 音声/動画ファイルを選択してアップロード", use_container_width=True, key="gcs_trigger")
+
+        if _upload_triggered or st.session_state.get("gcs_uploading"):
+            if not st.session_state.get("gcs_upload_url"):
+                try:
+                    _url, _blob = generate_resumable_upload_url("upload.mp4")
+                    st.session_state.gcs_upload_url = _url
+                    st.session_state.gcs_pending_blob = _blob
+                    st.session_state.gcs_uploading = True
+                except Exception as e:
+                    st.error(f"アップロードURL生成エラー: {e}")
+
+            if st.session_state.get("gcs_upload_url"):
+                _upload_url = st.session_state.gcs_upload_url
+                _uploader_html = f"""
+                <div id="gcs-upload" style="border:2px dashed #ccc;border-radius:12px;padding:20px;text-align:center;font-family:sans-serif;background:#fafafa;">
+                    <input type="file" id="gcs-file" accept=".mp4,.m4a,.wav,.mp3,.webm,.ogg,.flac,.mkv,.avi,.mov" style="margin:10px 0;" />
+                    <div id="gcs-prog" style="display:none;margin-top:10px;">
+                        <div style="background:#e0e0e0;border-radius:8px;height:24px;overflow:hidden;">
+                            <div id="gcs-bar" style="background:#ff4b4b;height:100%;width:0%;transition:width 0.3s;border-radius:8px;color:white;font-size:12px;font-weight:bold;display:flex;align-items:center;justify-content:center;">0%</div>
+                        </div>
+                        <p id="gcs-text" style="color:#666;margin-top:5px;font-size:13px;"></p>
+                    </div>
+                    <p id="gcs-done" style="display:none;color:#28a745;font-size:16px;">✅ アップロード完了！ページが自動更新されます...</p>
+                    <p id="gcs-err" style="display:none;color:#dc3545;"></p>
+                </div>
+                <script>
+                document.getElementById('gcs-file').addEventListener('change', function() {{
+                    const file = this.files[0];
+                    if (!file) return;
+                    const prog = document.getElementById('gcs-prog');
+                    const bar = document.getElementById('gcs-bar');
+                    const text = document.getElementById('gcs-text');
+                    const done = document.getElementById('gcs-done');
+                    const err = document.getElementById('gcs-err');
+                    prog.style.display = 'block';
+
+                    const xhr = new XMLHttpRequest();
+                    xhr.open('PUT', '{_upload_url}', true);
+                    xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
+                    xhr.upload.onprogress = function(e) {{
+                        if (e.lengthComputable) {{
+                            const pct = Math.round(e.loaded / e.total * 100);
+                            bar.style.width = pct + '%';
+                            bar.textContent = pct + '%';
+                            text.textContent = (e.loaded/1024/1024).toFixed(1) + ' MB / ' + (e.total/1024/1024).toFixed(1) + ' MB';
+                        }}
+                    }};
+                    xhr.onload = function() {{
+                        if (xhr.status >= 200 && xhr.status < 400) {{
+                            done.style.display = 'block';
+                            prog.style.display = 'none';
+                            // Streamlitにファイル名を通知（URLパラメータで）
+                            const url = new URL(window.parent.location.href);
+                            url.searchParams.set('gcs_done', '1');
+                            url.searchParams.set('gcs_filename', file.name);
+                            url.searchParams.set('gcs_size', file.size);
+                            window.parent.location.href = url.toString();
+                        }} else {{
+                            err.style.display = 'block';
+                            err.textContent = 'エラー: HTTP ' + xhr.status;
+                        }}
+                    }};
+                    xhr.onerror = function() {{
+                        err.style.display = 'block';
+                        err.textContent = 'ネットワークエラー';
+                    }};
+                    xhr.send(file);
+                }});
+                </script>
+                """
+                components.html(_uploader_html, height=180)
+
+        # GCSアップロード完了チェック
+        if _get_param("gcs_done"):
+            st.session_state.gcs_blob = st.session_state.get("gcs_pending_blob")
+            st.session_state.gcs_filename = _get_param("gcs_filename") or "upload.mp4"
+            st.session_state.gcs_filesize = int(_get_param("gcs_size") or 0)
+            st.session_state.gcs_upload_url = None
+            st.session_state.gcs_uploading = False
+            st.query_params.clear()
+            st.rerun()
+
+        if st.session_state.get("gcs_blob"):
+            _sz = st.session_state.get("gcs_filesize", 0) / (1024*1024)
+            st.success(f"✅ **{st.session_state.gcs_filename}** ({_sz:.1f} MB) — GCSにアップロード済み")
+
+        uploaded_file = None  # GCSモードではst.file_uploaderは使わない
+    else:
+        # ローカル環境: 通常のStreamlitアップローダー
+        uploaded_file = st.file_uploader("🎤 音声/動画ファイル",
+            type=["mp4", "m4a", "wav", "mp3", "webm", "ogg", "flac"], key="pd_audio")
+        if uploaded_file:
+            st.info(f"📁 **{uploaded_file.name}** ({uploaded_file.size / (1024*1024):.1f} MB)")
 
     ref_files = st.file_uploader("📄 参考資料（任意）",
         type=["pdf", "txt", "docx", "pptx", "xlsx", "csv", "md"],
@@ -449,10 +574,19 @@ else:
             except Exception as e:
                 st.error(f"読み込みエラー: {e}")
 
-    if uploaded_file:
-        if "file_id" not in st.session_state or st.session_state.get("file_name") != uploaded_file.name:
-            st.session_state.file_id = save_upload(uploaded_file)
-            st.session_state.file_name = uploaded_file.name
+    # ファイルの準備状態判定
+    _has_file = uploaded_file or st.session_state.get("gcs_blob")
+
+    if _has_file:
+        # ローカルモード: ファイルを一時保存
+        if uploaded_file:
+            if "file_id" not in st.session_state or st.session_state.get("file_name") != uploaded_file.name:
+                st.session_state.file_id = save_upload(uploaded_file)
+                st.session_state.file_name = uploaded_file.name
+        elif st.session_state.get("gcs_blob"):
+            # GCSモード: blob_nameをfile_idとして使う
+            st.session_state.file_id = st.session_state.gcs_blob
+            st.session_state.file_name = st.session_state.gcs_filename
 
         # 参考資料を一時保存
         ref_paths = []
@@ -478,11 +612,12 @@ else:
                 custom_instructions=paid_instructions,
             )
             st.session_state["paid_ref_paths"] = ref_paths
+            st.session_state["paid_use_gcs"] = bool(_use_gcs)
 
             with st.spinner("決済ページを準備中..."):
                 checkout_url = create_checkout_session(
                     file_id=st.session_state.file_id,
-                    file_name=uploaded_file.name, lang=lang,
+                    file_name=st.session_state.file_name, lang=lang,
                 )
 
             st.markdown(f'<meta http-equiv="refresh" content="0;url={checkout_url}">', unsafe_allow_html=True)

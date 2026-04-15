@@ -436,7 +436,8 @@ else:
         if _upload_triggered or st.session_state.get("gcs_uploading"):
             if not st.session_state.get("gcs_upload_url"):
                 try:
-                    _url, _blob = generate_resumable_upload_url("upload.mp4")
+                    _origin = st.context.headers.get("Origin", "https://giji-700896522925.asia-northeast1.run.app")
+                    _url, _blob = generate_resumable_upload_url("upload.mp4", origin=_origin)
                     st.session_state.gcs_upload_url = _url
                     st.session_state.gcs_pending_blob = _blob
                     st.session_state.gcs_uploading = True

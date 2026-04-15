@@ -23,8 +23,12 @@ def _get_credentials():
     return credentials
 
 
-def generate_resumable_upload_url(filename: str, content_type: str = "application/octet-stream") -> tuple[str, str]:
+def generate_resumable_upload_url(filename: str, content_type: str = "application/octet-stream",
+                                   origin: str = "*") -> tuple[str, str]:
     """Resumable Upload URL を生成する。ブラウザから直接 GCS に PUT できる。
+
+    Args:
+        origin: CORSのOriginヘッダー（Cloud RunのURL等）
 
     Returns:
         (upload_url, blob_name)
@@ -35,11 +39,13 @@ def generate_resumable_upload_url(filename: str, content_type: str = "applicatio
     credentials = _get_credentials()
 
     # Resumable Upload を開始するPOSTリクエスト
+    # Origin ヘッダーが必須 — これがないとGCSがCORSレスポンスを返さない
     url = f"https://storage.googleapis.com/upload/storage/v1/b/{GCS_BUCKET}/o?uploadType=resumable&name={blob_name}"
     headers = {
         "Authorization": f"Bearer {credentials.token}",
         "Content-Type": "application/json",
         "X-Upload-Content-Type": content_type,
+        "Origin": origin,
     }
     resp = _requests.post(url, headers=headers, json={"name": blob_name})
     resp.raise_for_status()

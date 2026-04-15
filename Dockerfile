@@ -18,34 +18,11 @@ COPY gemini_transcribe_v2.py app_paid.py ./
 COPY .streamlit/config.toml .streamlit/config.toml
 
 # nginx設定（大容量アップロード対応）
-RUN cat > /etc/nginx/sites-available/default << 'NGINX'
-server {
-    listen 8080;
-    client_max_body_size 2G;
-    proxy_read_timeout 3600;
-    proxy_send_timeout 3600;
-    proxy_connect_timeout 60;
-
-    location / {
-        proxy_pass http://127.0.0.1:8501;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-}
-NGINX
+COPY nginx.conf /etc/nginx/sites-available/default
 
 # 起動スクリプト
-RUN cat > /app/start.sh << 'SCRIPT'
-#!/bin/bash
-nginx &
-exec streamlit run app_paid.py --server.port=8501 --server.address=127.0.0.1
-SCRIPT
-RUN chmod +x /app/start.sh
+COPY entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
 
 # 出力ディレクトリ
 RUN mkdir -p /app/output
@@ -57,4 +34,4 @@ ENV STREAMLIT_SERVER_MAX_UPLOAD_SIZE=2000
 
 EXPOSE 8080
 
-CMD ["/app/start.sh"]
+CMD ["/app/entrypoint.sh"]

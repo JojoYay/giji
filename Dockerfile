@@ -4,7 +4,7 @@ WORKDIR /app
 
 # ffmpeg + nginx インストール
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends ffmpeg nginx && \
+    apt-get install -y --no-install-recommends ffmpeg nginx curl && \
     rm -rf /var/lib/apt/lists/*
 
 # 依存パッケージ

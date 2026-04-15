@@ -164,23 +164,57 @@ elif param_session_id and param_file_id:
         st.error("ファイルが見つかりません。再度アップロードしてください。")
         st.stop()
 
+    # 推定完了時刻を計算・表示
+    import datetime
+    file_size_mb = file_path.stat().st_size / (1024 * 1024)
+    # 目安: 音声抽出 ~30秒, アップロード ~1分/100MB, 文字起こし ~2分/15分チャンク, 議事録 ~1分
+    est_audio_sec = 30 if file_size_mb > 50 else 10
+    est_upload_sec = max(30, int(file_size_mb / 100 * 60))
+    # 推定音声長（分）: 動画1MBあたり約3秒、音声1MBあたり約15秒
+    if file_path.suffix.lower() in {".mp4", ".mkv", ".avi", ".mov", ".webm"}:
+        est_audio_min = file_size_mb * 3 / 60  # 動画
+    else:
+        est_audio_min = file_size_mb * 15 / 60  # 音声
+    est_chunks = max(1, int(est_audio_min / 15) + 1)
+    est_transcribe_sec = est_chunks * 120  # 1チャンク約2分
+    est_summary_sec = 60
+    est_total_sec = est_audio_sec + est_upload_sec + est_transcribe_sec + est_summary_sec
+    est_finish = datetime.datetime.now() + datetime.timedelta(seconds=est_total_sec)
+
+    eta_placeholder = st.empty()
+    eta_placeholder.info(
+        f"⏱️ 推定完了時刻: **{est_finish.strftime('%H:%M')}** 頃 "
+        f"（約{est_total_sec // 60}分 / ファイル {file_size_mb:.0f}MB / 推定{est_chunks}チャンク）"
+    )
+
     # 処理実行
+    import time as _time
+    start_time = _time.time()
     progress_bar = st.progress(0, text="準備中...")
     status_text = st.empty()
 
     step_progress = {"[前処理]": 5, "[1/4]": 10, "[2/4]": 40, "[3/4]": 70, "[4/4]": 90}
 
     def on_progress(kind, msg):
+        elapsed = int(_time.time() - start_time)
+        elapsed_str = f"{elapsed // 60}分{elapsed % 60:02d}秒"
         if kind == "step":
             for key, val in step_progress.items():
                 if msg.startswith(key):
                     progress_bar.progress(val, text=msg)
                     break
-            status_text.text(msg)
+            # チャンク処理の進捗を動的に反映
+            import re
+            m = re.match(r"\[(\d+)/(\d+)\]", msg)
+            if m:
+                current, total = int(m.group(1)), int(m.group(2))
+                pct = int(10 + (current / total) * 60)  # 10%〜70%
+                progress_bar.progress(min(pct, 95), text=msg)
+            status_text.text(f"{msg}  (経過: {elapsed_str})")
         elif kind == "processing":
-            status_text.text(f"  処理待ち: {msg}")
+            status_text.text(f"  処理待ち: {msg}  (経過: {elapsed_str})")
         elif kind == "upload_done":
-            status_text.text(f"  アップロード完了: {msg}")
+            status_text.text(f"  アップロード完了: {msg}  (経過: {elapsed_str})")
 
     try:
         transcript, summary, t_path, s_path, usage = run_pipeline(
@@ -193,8 +227,14 @@ elif param_session_id and param_file_id:
             on_progress=on_progress,
         )
 
+        actual_sec = int(_time.time() - start_time)
+        actual_min = actual_sec // 60
+        actual_sec_rem = actual_sec % 60
         progress_bar.progress(100, text="完了!")
         status_text.empty()
+        eta_placeholder.success(
+            f"✅ 処理完了！ 所要時間: **{actual_min}分{actual_sec_rem:02d}秒**"
+        )
 
         # コストレポート（内部参考用）
         total_cost = usage.calc_cost(MODEL, has_audio=True)
@@ -202,11 +242,13 @@ elif param_session_id and param_file_id:
         st.divider()
         st.subheader("📊 結果")
 
-        col1, col2 = st.columns(2)
+        col1, col2, col3 = st.columns(3)
         with col1:
             st.metric("合計トークン", f"{usage.total_tokens:,}")
         with col2:
             st.metric("API原価 (USD)", f"${total_cost:.4f}")
+        with col3:
+            st.metric("所要時間", f"{actual_min}分{actual_sec_rem:02d}秒")
 
         # 結果タブ
         tab1, tab2 = st.tabs(["📄 文字起こし", "📋 議事録"])

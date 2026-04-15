@@ -102,7 +102,28 @@ if run_button:
         tmp.write(uploaded_file.getbuffer())
         tmp_path = tmp.name
 
+    # 推定完了時刻
+    import datetime
+    import time as _time
+    import re as _re
+
+    file_size_mb = uploaded_file.size / (1024 * 1024)
+    if suffix.lower() in {".mp4", ".mkv", ".avi", ".mov", ".webm"}:
+        est_audio_min = file_size_mb * 3 / 60
+    else:
+        est_audio_min = file_size_mb * 15 / 60
+    est_chunks = max(1, int(est_audio_min / 15) + 1)
+    est_total_sec = 30 + max(30, int(file_size_mb / 100 * 60)) + est_chunks * 120 + 60
+    est_finish = datetime.datetime.now() + datetime.timedelta(seconds=est_total_sec)
+
+    eta_placeholder = st.empty()
+    eta_placeholder.info(
+        f"⏱️ 推定完了時刻: **{est_finish.strftime('%H:%M')}** 頃 "
+        f"（約{est_total_sec // 60}分 / {file_size_mb:.0f}MB / 推定{est_chunks}チャンク）"
+    )
+
     # 進捗表示
+    start_time = _time.time()
     progress_bar = st.progress(0, text="準備中...")
     status_text = st.empty()
 
@@ -115,16 +136,23 @@ if run_button:
     }
 
     def on_progress(kind, msg):
+        elapsed = int(_time.time() - start_time)
+        elapsed_str = f"{elapsed // 60}分{elapsed % 60:02d}秒"
         if kind == "step":
             for key, val in step_progress.items():
                 if msg.startswith(key):
                     progress_bar.progress(val, text=msg)
                     break
-            status_text.text(msg)
+            m = _re.match(r"\[(\d+)/(\d+)\]", msg)
+            if m:
+                current, total = int(m.group(1)), int(m.group(2))
+                pct = int(10 + (current / total) * 60)
+                progress_bar.progress(min(pct, 95), text=msg)
+            status_text.text(f"{msg}  (経過: {elapsed_str})")
         elif kind == "processing":
-            status_text.text(f"  Gemini処理待ち: {msg}")
+            status_text.text(f"  Gemini処理待ち: {msg}  (経過: {elapsed_str})")
         elif kind == "upload_done":
-            status_text.text(f"  アップロード完了: {msg}")
+            status_text.text(f"  アップロード完了: {msg}  (経過: {elapsed_str})")
 
     try:
         prefix = output_prefix.strip() if output_prefix.strip() else None
@@ -139,10 +167,14 @@ if run_button:
             on_progress=on_progress,
         )
 
+        actual_sec = int(_time.time() - start_time)
         progress_bar.progress(100, text="完了!")
         status_text.empty()
+        eta_placeholder.success(
+            f"✅ 処理完了！ 所要時間: **{actual_sec // 60}分{actual_sec % 60:02d}秒**"
+        )
 
-        st.success(f"✅ 完了! ファイル保存先: `{output_dir}/`")
+        st.success(f"ファイル保存先: `{output_dir}/`")
 
         # ───── コストレポート ─────
         total_cost = usage.calc_cost(model, has_audio=True)

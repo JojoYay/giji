@@ -211,12 +211,55 @@ Transkripsi:
 }
 
 
-def get_transcript_prompt(lang: str = "ja") -> str:
-    return TRANSCRIPT_PROMPTS.get(lang, TRANSCRIPT_PROMPTS["ja"])
+# デフォルト要約方針（UIでユーザーに見せる）
+DEFAULT_SUMMARY_GUIDELINES = {
+    "ja": (
+        "・基本情報（日時・参加者）、議題、討議内容、決定事項、TODOを構造化して記載\n"
+        "・アクションアイテムは表形式（担当者・内容・期限）で記載\n"
+        "・客観的・簡潔な文体で記載"
+    ),
+    "en": (
+        "• Structured format: basic info, agenda, discussion, decisions, action items\n"
+        "• Action items in table format (assignee, task, deadline)\n"
+        "• Objective and concise writing style"
+    ),
+    "zh": (
+        "・基本信息、议题、讨论内容、决定事项、待办事项以结构化方式记载\n"
+        "・待办事项以表格形式（负责人、内容、截止日期）记载\n"
+        "・客观简洁的文体"
+    ),
+    "ms": (
+        "• Format berstruktur: maklumat asas, agenda, perbincangan, keputusan, tindakan\n"
+        "• Tindakan susulan dalam format jadual (bertanggungjawab, tugasan, tarikh akhir)\n"
+        "• Gaya penulisan objektif dan ringkas"
+    ),
+}
 
 
-def get_summary_prompt(lang: str = "ja") -> str:
-    return SUMMARY_PROMPTS.get(lang, SUMMARY_PROMPTS["ja"])
+def get_transcript_prompt(lang: str = "ja", keywords: str = "") -> str:
+    prompt = TRANSCRIPT_PROMPTS.get(lang, TRANSCRIPT_PROMPTS["ja"])
+    if keywords:
+        keyword_instruction = {
+            "ja": f"\n【重要キーワード】\n以下のキーワードが登場する可能性があります。正確に書き起こしてください:\n{keywords}\n",
+            "en": f"\n[Important Keywords]\nThe following keywords may appear. Please transcribe them accurately:\n{keywords}\n",
+            "zh": f"\n【重要关键词】\n以下关键词可能出现，请准确转录:\n{keywords}\n",
+            "ms": f"\n[Kata Kunci Penting]\nKata kunci berikut mungkin muncul. Sila transkripsi dengan tepat:\n{keywords}\n",
+        }
+        prompt += keyword_instruction.get(lang, keyword_instruction["ja"])
+    return prompt
+
+
+def get_summary_prompt(lang: str = "ja", custom_instructions: str = "") -> str:
+    prompt = SUMMARY_PROMPTS.get(lang, SUMMARY_PROMPTS["ja"])
+    if custom_instructions:
+        injection = {
+            "ja": f"\n【追加の要約指示】\n以下の指示にも従ってください:\n{custom_instructions}\n",
+            "en": f"\n[Additional Instructions]\nPlease also follow these instructions:\n{custom_instructions}\n",
+            "zh": f"\n【额外要约指示】\n请同时遵循以下指示:\n{custom_instructions}\n",
+            "ms": f"\n[Arahan Tambahan]\nSila ikut juga arahan berikut:\n{custom_instructions}\n",
+        }
+        prompt += injection.get(lang, injection["ja"])
+    return prompt
 
 # ───────── 料金テーブル (USD per 1M tokens) ─────────
 # https://ai.google.dev/gemini-api/docs/pricing
@@ -511,24 +554,24 @@ def _generate_with_retry(client, model, contents, on_progress=None, label=""):
                 raise
 
 
-def transcribe(client, uploaded, model, lang="ja", on_progress=None):
+def transcribe(client, uploaded, model, lang="ja", keywords="", on_progress=None):
     """アップロード済みファイルから文字起こしを実行する。response を返す。"""
     return _generate_with_retry(
         client, model,
         contents=[
             types.Part.from_uri(file_uri=uploaded.uri, mime_type=uploaded.mime_type),
-            get_transcript_prompt(lang),
+            get_transcript_prompt(lang, keywords),
         ],
         on_progress=on_progress,
         label="文字起こし",
     )
 
 
-def summarize(client, transcript_text, model, lang="ja", on_progress=None):
+def summarize(client, transcript_text, model, lang="ja", custom_instructions="", on_progress=None):
     """文字起こしテキストから議事録要約を生成する。response を返す。"""
     return _generate_with_retry(
         client, model,
-        contents=get_summary_prompt(lang).format(transcript=transcript_text),
+        contents=get_summary_prompt(lang, custom_instructions).format(transcript=transcript_text),
         on_progress=on_progress,
         label="議事録生成",
     )
@@ -541,6 +584,8 @@ def run_pipeline(
     api_key: str,
     model: str = "gemini-2.5-flash",
     lang: str = "ja",
+    keywords: str = "",
+    custom_instructions: str = "",
     output_dir: str = ".",
     output_prefix: str | None = None,
     on_progress=None,
@@ -549,6 +594,8 @@ def run_pipeline(
 
     Args:
         lang: 出力言語コード ("ja", "en", "zh", "ms")
+        keywords: 文字起こし時の重要キーワード
+        custom_instructions: 要約時のカスタム指示
 
     Returns:
         (transcript_text, summary_text, transcript_path, summary_path, usage_stats)
@@ -587,7 +634,7 @@ def run_pipeline(
             if on_progress:
                 on_progress("step", f"[{idx}/{total_chunks}] 文字起こし中 ({lang_name})...")
 
-            resp = transcribe(client, uploaded, model, lang, on_progress)
+            resp = transcribe(client, uploaded, model, lang, keywords, on_progress)
             all_transcripts.append(resp.text)
             if resp.usage_metadata:
                 usage.add(f"文字起こし ({chunk_label})", resp.usage_metadata)
@@ -610,7 +657,7 @@ def run_pipeline(
         if on_progress:
             on_progress("step", f"[議事録] 全{total_chunks}チャンクの文字起こしから議事録を生成中 ({lang_name})...")
 
-        resp2 = summarize(client, transcript, model, lang, on_progress)
+        resp2 = summarize(client, transcript, model, lang, custom_instructions, on_progress)
         summary = resp2.text
         if resp2.usage_metadata:
             usage.add("議事録生成", resp2.usage_metadata)
@@ -632,7 +679,7 @@ def run_pipeline(
         if on_progress:
             on_progress("step", f"[2/4] 文字起こし中 ({model} / {lang_name})...")
 
-        resp1 = transcribe(client, uploaded, model, lang, on_progress)
+        resp1 = transcribe(client, uploaded, model, lang, keywords, on_progress)
         transcript = resp1.text
         if resp1.usage_metadata:
             usage.add("文字起こし", resp1.usage_metadata)
@@ -640,7 +687,7 @@ def run_pipeline(
         if on_progress:
             on_progress("step", f"[3/4] 議事録生成中 ({lang_name})...")
 
-        resp2 = summarize(client, transcript, model, lang, on_progress)
+        resp2 = summarize(client, transcript, model, lang, custom_instructions, on_progress)
         summary = resp2.text
         if resp2.usage_metadata:
             usage.add("議事録生成", resp2.usage_metadata)
@@ -680,6 +727,8 @@ def main():
     parser.add_argument("--lang", default="ja",
                         choices=list(SUPPORTED_LANGUAGES.keys()),
                         help="出力言語 (ja/en/zh/ms)")
+    parser.add_argument("--keywords", default="", help="重要キーワード（カンマ区切り）")
+    parser.add_argument("--instructions", default="", help="要約のカスタム指示")
     parser.add_argument("--output_dir", default=".", help="出力先フォルダ")
     parser.add_argument("--output_prefix", default=None, help="出力ファイル名プレフィックス")
     args = parser.parse_args()
@@ -713,6 +762,8 @@ def main():
         api_key=api_key,
         model=args.model,
         lang=args.lang,
+        keywords=args.keywords,
+        custom_instructions=args.instructions,
         output_dir=args.output_dir,
         output_prefix=args.output_prefix,
         on_progress=cli_progress,

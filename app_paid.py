@@ -13,7 +13,7 @@ import streamlit as st
 import stripe
 from dotenv import load_dotenv
 
-from gemini_transcribe_v2 import run_pipeline, MODEL_PRICING, SUPPORTED_LANGUAGES
+from gemini_transcribe_v2 import run_pipeline, MODEL_PRICING, SUPPORTED_LANGUAGES, DEFAULT_SUMMARY_GUIDELINES
 
 # ───────── 設定読み込み ─────────
 load_dotenv(Path(__file__).parent / ".env")
@@ -216,12 +216,18 @@ elif param_session_id and param_file_id:
         elif kind == "upload_done":
             status_text.text(f"  アップロード完了: {msg}  (経過: {elapsed_str})")
 
+    # session_stateからカスタム指示を取得
+    kw = st.session_state.get("paid_keywords", "")
+    ci = st.session_state.get("paid_instructions", "")
+
     try:
         transcript, summary, t_path, s_path, usage = run_pipeline(
             file_path=str(file_path),
             api_key=GEMINI_API_KEY,
             model=MODEL,
             lang=payment["lang"],
+            keywords=kw,
+            custom_instructions=ci,
             output_dir="output",
             output_prefix=Path(payment["file_name"]).stem,
             on_progress=on_progress,
@@ -236,41 +242,13 @@ elif param_session_id and param_file_id:
             f"✅ 処理完了！ 所要時間: **{actual_min}分{actual_sec_rem:02d}秒**"
         )
 
-        # コストレポート（内部参考用）
-        total_cost = usage.calc_cost(MODEL, has_audio=True)
-
-        st.divider()
-        st.subheader("📊 結果")
-
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("合計トークン", f"{usage.total_tokens:,}")
-        with col2:
-            st.metric("API原価 (USD)", f"${total_cost:.4f}")
-        with col3:
-            st.metric("所要時間", f"{actual_min}分{actual_sec_rem:02d}秒")
-
-        # 結果タブ
-        tab1, tab2 = st.tabs(["📄 文字起こし", "📋 議事録"])
-
-        with tab1:
-            st.text_area("文字起こし", transcript, height=400, label_visibility="collapsed")
-            st.download_button(
-                "💾 ダウンロード (.txt)",
-                data=transcript,
-                file_name=Path(t_path).name,
-                mime="text/plain",
-            )
-
-        with tab2:
-            st.markdown(summary)
-            st.divider()
-            st.download_button(
-                "💾 ダウンロード (.md)",
-                data=summary,
-                file_name=Path(s_path).name,
-                mime="text/markdown",
-            )
+        # session_stateに保存（編集・話者置換用）
+        st.session_state["result_transcript"] = transcript
+        st.session_state["result_summary"] = summary
+        st.session_state["result_t_path"] = t_path
+        st.session_state["result_s_path"] = s_path
+        st.session_state["result_usage"] = usage
+        st.session_state["result_ready"] = True
 
     except Exception as e:
         progress_bar.empty()
@@ -280,6 +258,84 @@ elif param_session_id and param_file_id:
     finally:
         cleanup_upload(file_id)
         st.query_params.clear()
+
+# ───── 結果表示（処理完了後）─────
+if st.session_state.get("result_ready"):
+    import re
+
+    transcript = st.session_state["result_transcript"]
+    summary = st.session_state["result_summary"]
+    t_path = st.session_state["result_t_path"]
+    s_path = st.session_state["result_s_path"]
+    usage = st.session_state["result_usage"]
+
+    total_cost = usage.calc_cost(MODEL, has_audio=True)
+
+    st.divider()
+    st.subheader("📊 結果")
+
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("合計トークン", f"{usage.total_tokens:,}")
+    with col2:
+        st.metric("API原価 (USD)", f"${total_cost:.4f}")
+    with col3:
+        st.metric("所要時間", f"{st.session_state.get('actual_min', 0)}分")
+
+    # ─── 話者名の置換 ───
+    st.divider()
+    st.subheader("👥 話者名の紐づけ")
+    st.caption("「話者A」「話者B」等を実際の参加者名に置換できます。")
+
+    speaker_labels = sorted(set(re.findall(r"(話者[A-Z]|Speaker [A-Z])", transcript)))
+
+    if speaker_labels:
+        speaker_map = {}
+        cols = st.columns(min(len(speaker_labels), 4))
+        for i, label in enumerate(speaker_labels):
+            with cols[i % len(cols)]:
+                name = st.text_input(f"{label}", key=f"spk_{label}", placeholder="名前を入力")
+                if name.strip():
+                    speaker_map[label] = name.strip()
+
+        if speaker_map and st.button("🔄 話者名を置換", use_container_width=True):
+            for old, new in speaker_map.items():
+                transcript = transcript.replace(old, new)
+                summary = summary.replace(old, new)
+            st.session_state["result_transcript"] = transcript
+            st.session_state["result_summary"] = summary
+            st.success("✅ 話者名を置換しました！")
+            st.rerun()
+
+    # ─── 結果タブ（編集可能）───
+    st.divider()
+    tab1, tab2 = st.tabs(["📄 文字起こし（編集可能）", "📋 議事録（編集可能）"])
+
+    with tab1:
+        edited_transcript = st.text_area(
+            "文字起こし", value=transcript, height=500,
+            key="paid_edit_transcript", label_visibility="collapsed",
+        )
+        st.download_button(
+            "💾 ダウンロード (.txt)",
+            data=edited_transcript,
+            file_name=Path(t_path).name,
+            mime="text/plain",
+        )
+
+    with tab2:
+        edited_summary = st.text_area(
+            "議事録", value=summary, height=500,
+            key="paid_edit_summary", label_visibility="collapsed",
+        )
+        with st.expander("📖 Markdownプレビュー", expanded=True):
+            st.markdown(edited_summary)
+        st.download_button(
+            "💾 ダウンロード (.md)",
+            data=edited_summary,
+            file_name=Path(s_path).name,
+            mime="text/markdown",
+        )
 
 # --- 通常（ファイルアップロード画面）---
 else:
@@ -296,6 +352,24 @@ else:
         format_func=lambda k: SUPPORTED_LANGUAGES[k],
         index=0,
     )
+
+    with st.expander("🔧 詳細オプション（キーワード・要約指示）", expanded=False):
+        st.markdown("##### 🏷️ 重要キーワード")
+        st.caption("固有名詞・専門用語など、正確に書き起こしたいキーワード")
+        paid_keywords = st.text_area(
+            "キーワード",
+            placeholder="例: MJS, シンガポール, 住宅手当",
+            height=68, label_visibility="collapsed", key="kw_input",
+        )
+
+        st.markdown("##### 📋 要約の方針")
+        guidelines = DEFAULT_SUMMARY_GUIDELINES.get(lang, DEFAULT_SUMMARY_GUIDELINES["ja"])
+        st.caption(f"**デフォルトの要約方針:**\n{guidelines}")
+        paid_instructions = st.text_area(
+            "追加の要約指示",
+            placeholder="例: ですます調で記載 / アクションプランを詳細に / 箇条書きで整理",
+            height=100, label_visibility="collapsed", key="ci_input",
+        )
 
     uploaded_file = st.file_uploader(
         "🎤 音声/動画ファイルを選択",
@@ -321,6 +395,10 @@ else:
             if not stripe.api_key or stripe.api_key.startswith("sk_test_ここに"):
                 st.error("Stripe APIキーが設定されていません。.env を確認してください。")
                 st.stop()
+
+            # キーワード・指示をsession_stateに保存
+            st.session_state["paid_keywords"] = paid_keywords
+            st.session_state["paid_instructions"] = paid_instructions
 
             with st.spinner("決済ページを準備中..."):
                 checkout_url = create_checkout_session(

@@ -430,7 +430,7 @@ else:
             st.session_state.gcs_blob = None
             st.session_state.gcs_filename = None
 
-        # Step 1: アップロードURLを生成
+        # アップロードURLを生成（1回だけ）
         if not st.session_state.get("gcs_upload_url"):
             try:
                 _origin = st.context.headers.get("Origin", "https://giji-700896522925.asia-northeast1.run.app")
@@ -440,38 +440,41 @@ else:
             except Exception as e:
                 st.error(f"アップロード準備エラー: {e}")
 
-        # Step 2: アップロードUI表示
-        if st.session_state.get("gcs_upload_url") and not st.session_state.get("gcs_blob"):
+        # アップロードUI表示（未アップロード時）
+        if not st.session_state.get("gcs_blob") and st.session_state.get("gcs_upload_url"):
             _upload_url = st.session_state.gcs_upload_url
-            _blob_name = st.session_state.gcs_pending_blob
-            _uploader_html = f"""
-            <div style="border:2px dashed #ccc;border-radius:12px;padding:20px;text-align:center;font-family:sans-serif;background:#fafafa;">
-                <p style="font-size:16px;margin:0 0 10px;">🎤 音声/動画ファイルを選択してアップロード</p>
-                <input type="file" id="gcs-file" accept=".mp4,.m4a,.wav,.mp3,.webm,.ogg,.flac,.mkv,.avi,.mov" style="margin:10px 0;" />
-                <div id="gcs-prog" style="display:none;margin-top:10px;">
-                    <div style="background:#e0e0e0;border-radius:8px;height:24px;overflow:hidden;">
-                        <div id="gcs-bar" style="background:#ff4b4b;height:100%;width:0%;transition:width 0.3s;border-radius:8px;color:white;font-size:12px;font-weight:bold;display:flex;align-items:center;justify-content:center;">0%</div>
+            st.html(f"""
+            <div style="border:2px dashed #ccc;border-radius:12px;padding:25px;text-align:center;font-family:sans-serif;background:#fafafa;">
+                <p style="font-size:16px;margin:0 0 15px;">🎤 音声/動画ファイルを選択してアップロード</p>
+                <p style="color:#888;font-size:13px;margin:0 0 10px;">対応形式: MP4, M4A, WAV, MP3, WEBM, OGG, FLAC</p>
+                <input type="file" id="gcs-file" accept=".mp4,.m4a,.wav,.mp3,.webm,.ogg,.flac,.mkv,.avi,.mov"
+                       style="margin:10px auto;display:block;" />
+                <div id="gcs-prog" style="display:none;margin-top:15px;">
+                    <div style="background:#e0e0e0;border-radius:8px;height:28px;overflow:hidden;">
+                        <div id="gcs-bar" style="background:#ff4b4b;height:100%;width:0%;transition:width 0.3s;
+                             border-radius:8px;color:white;font-size:13px;font-weight:bold;
+                             display:flex;align-items:center;justify-content:center;">0%</div>
                     </div>
-                    <p id="gcs-text" style="color:#666;margin-top:5px;font-size:13px;"></p>
+                    <p id="gcs-text" style="color:#666;margin-top:8px;font-size:13px;"></p>
                 </div>
-                <p id="gcs-done" style="display:none;color:#28a745;font-size:16px;font-weight:bold;">✅ アップロード完了！ 下の「アップロード完了」ボタンを押してください</p>
-                <p id="gcs-err" style="display:none;color:#dc3545;"></p>
-                <input type="hidden" id="gcs-filename" value="" />
-                <input type="hidden" id="gcs-filesize" value="0" />
+                <div id="gcs-done" style="display:none;margin-top:15px;padding:15px;background:#d4edda;border-radius:8px;">
+                    <p style="color:#155724;font-size:18px;font-weight:bold;margin:0;">
+                        ✅ アップロード完了！</p>
+                    <p style="color:#155724;font-size:14px;margin:5px 0 0;">
+                        下にスクロールして「💳 ¥500」ボタンを押してください</p>
+                </div>
+                <p id="gcs-err" style="display:none;color:#dc3545;margin-top:10px;"></p>
             </div>
             <script>
             document.getElementById('gcs-file').addEventListener('change', function() {{
                 const file = this.files[0];
                 if (!file) return;
-                document.getElementById('gcs-filename').value = file.name;
-                document.getElementById('gcs-filesize').value = file.size;
                 const prog = document.getElementById('gcs-prog');
                 const bar = document.getElementById('gcs-bar');
                 const text = document.getElementById('gcs-text');
                 prog.style.display = 'block';
                 document.getElementById('gcs-done').style.display = 'none';
                 document.getElementById('gcs-err').style.display = 'none';
-
                 const xhr = new XMLHttpRequest();
                 xhr.open('PUT', '{_upload_url}', true);
                 xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
@@ -487,9 +490,18 @@ else:
                     if (xhr.status >= 200 && xhr.status < 400) {{
                         prog.style.display = 'none';
                         document.getElementById('gcs-done').style.display = 'block';
+                        // Streamlit session_stateを更新するためにURLパラメータを設定してリロード
+                        try {{
+                            const url = new URL(window.parent.location.href);
+                            url.searchParams.set('gcs_done', '1');
+                            url.searchParams.set('gcs_fn', encodeURIComponent(file.name));
+                            window.parent.location.href = url.toString();
+                        }} catch(e) {{
+                            // iframe制限でリダイレクトできない場合は完了メッセージのみ表示
+                        }}
                     }} else {{
                         document.getElementById('gcs-err').style.display = 'block';
-                        document.getElementById('gcs-err').textContent = 'エラー: HTTP ' + xhr.status;
+                        document.getElementById('gcs-err').textContent = 'アップロードエラー: HTTP ' + xhr.status;
                     }}
                 }};
                 xhr.onerror = function() {{
@@ -499,36 +511,29 @@ else:
                 xhr.send(file);
             }});
             </script>
-            """
-            st.html(_uploader_html)
+            """)
 
-            # ファイル名を手動入力（JSからの通知が使えないため）
-            _confirm_col1, _confirm_col2 = st.columns([2, 1])
-            with _confirm_col1:
-                _gcs_fn = st.text_input("アップロードしたファイル名", placeholder="例: meeting.mp4", key="gcs_fn_input")
-            with _confirm_col2:
-                st.write("")  # spacer
-                st.write("")
-                if st.button("✅ アップロード完了", type="primary", key="gcs_confirm"):
-                    if _gcs_fn:
-                        st.session_state.gcs_blob = st.session_state.gcs_pending_blob
-                        st.session_state.gcs_filename = _gcs_fn
-                        st.session_state.gcs_upload_url = None
-                        st.rerun()
-                    else:
-                        st.warning("ファイル名を入力してください")
+            # 💳ボタンは常に表示（GCSアップロード済みかどうかに関わらず）
+            # ユーザーがアップロード完了後に押す
+            st.caption("⬆️ ファイルをアップロードしてから下のボタンを押してください")
 
-        # Step 3: アップロード済み表示
+        # GCSアップロード完了チェック（URLパラメータ経由）
+        if _get_param("gcs_done"):
+            _fn = _get_param("gcs_fn")
+            if _fn:
+                import urllib.parse
+                _fn = urllib.parse.unquote(_fn)
+            st.session_state.gcs_blob = st.session_state.get("gcs_pending_blob")
+            st.session_state.gcs_filename = _fn or "upload.mp4"
+            st.session_state.gcs_upload_url = None
+            st.query_params.clear()
+            st.rerun()
+
+        # アップロード済み表示
         if st.session_state.get("gcs_blob"):
-            st.success(f"✅ **{st.session_state.gcs_filename}** — GCSにアップロード済み")
-            if st.button("🔄 別のファイルをアップロード", key="gcs_reset"):
-                delete_from_gcs(st.session_state.gcs_blob)
-                st.session_state.gcs_blob = None
-                st.session_state.gcs_filename = None
-                st.session_state.gcs_upload_url = None
-                st.rerun()
+            st.success(f"✅ **{st.session_state.gcs_filename}** — アップロード済み")
 
-        uploaded_file = None  # GCSモードではst.file_uploaderは使わない
+        uploaded_file = None
     else:
         # ローカル環境: 通常のStreamlitアップローダー
         uploaded_file = st.file_uploader("🎤 音声/動画ファイル",

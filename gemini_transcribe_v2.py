@@ -95,15 +95,21 @@ Sila buat transkripsi lengkap dalam Bahasa Melayu mengikut format berikut.
 """,
 }
 
-SUMMARY_PROMPTS = {
-    "ja": """\
-以下はビジネス会議の文字起こしです。これをもとに議事録を日本語で作成してください。
+# ───────── 要約テンプレート ─────────
 
-# 議事録
+SUMMARY_TEMPLATES = {
+    "standard": {
+        "name": {"ja": "📋 標準議事録", "en": "📋 Standard Minutes", "zh": "📋 标准会议纪要", "ms": "📋 Minit Standard"},
+        "description": {"ja": "基本情報・討議内容・決定事項・TODOを網羅した標準フォーマット",
+                        "en": "Comprehensive format covering basic info, discussion, decisions, and action items",
+                        "zh": "涵盖基本信息、讨论、决定和行动项的标准格式",
+                        "ms": "Format komprehensif merangkumi maklumat asas, perbincangan, keputusan dan tindakan"},
+        "template": {
+            "ja": """# 議事録
 
 ## 基本情報
-- 日時（文字起こしから推定）
-- 参加者（登場した話者）
+- 日時:
+- 参加者:
 - 会議形式: Web会議
 
 ## 議題・目的
@@ -118,20 +124,12 @@ SUMMARY_PROMPTS = {
 
 ## 次回予定
 
-## その他・備考
-
----
-文字起こし:
-{transcript}
-""",
-    "en": """\
-Below is a transcription of a business meeting. Please create meeting minutes in English based on this.
-
-# Meeting Minutes
+## その他・備考""",
+            "en": """# Meeting Minutes
 
 ## Basic Information
-- Date/Time (estimated from transcription)
-- Participants (speakers identified)
+- Date/Time:
+- Participants:
 - Format: Web meeting
 
 ## Agenda / Purpose
@@ -146,21 +144,13 @@ Below is a transcription of a business meeting. Please create meeting minutes in
 
 ## Next Meeting
 
-## Notes
-
----
-Transcription:
-{transcript}
-""",
-    "zh": """\
-以下是商务会议的文字记录。请据此用中文撰写会议纪要。
-
-# 会议纪要
+## Notes""",
+            "zh": """# 会议纪要
 
 ## 基本信息
-- 日期时间（从文字记录推断）
-- 参会人员（出现的发言人）
-- 会议形式：网络会议
+- 日期时间:
+- 参会人员:
+- 会议形式: 网络会议
 
 ## 议题与目的
 
@@ -174,20 +164,12 @@ Transcription:
 
 ## 下次会议
 
-## 其他备注
-
----
-文字记录：
-{transcript}
-""",
-    "ms": """\
-Berikut ialah transkripsi mesyuarat perniagaan. Sila buat minit mesyuarat dalam Bahasa Melayu berdasarkan ini.
-
-# Minit Mesyuarat
+## 其他备注""",
+            "ms": """# Minit Mesyuarat
 
 ## Maklumat Asas
-- Tarikh/Masa (dianggarkan daripada transkripsi)
-- Peserta (penutur yang dikenal pasti)
+- Tarikh/Masa:
+- Peserta:
 - Format: Mesyuarat web
 
 ## Agenda / Tujuan
@@ -202,13 +184,438 @@ Berikut ialah transkripsi mesyuarat perniagaan. Sila buat minit mesyuarat dalam 
 
 ## Mesyuarat Seterusnya
 
-## Catatan
+## Catatan""",
+        },
+    },
+    "action_focused": {
+        "name": {"ja": "🎯 アクション重視", "en": "🎯 Action-Focused", "zh": "🎯 行动导向", "ms": "🎯 Fokus Tindakan"},
+        "description": {"ja": "決定事項とアクションアイテムを最上部に配置。実行管理向け",
+                        "en": "Decisions and action items at the top. Best for execution tracking",
+                        "zh": "决定事项和行动项置顶，适合执行管理",
+                        "ms": "Keputusan dan tindakan di atas. Terbaik untuk pengurusan pelaksanaan"},
+        "template": {
+            "ja": """# 議事録（アクション重視）
+
+## 🎯 決定事項（即時対応）
+
+## 📋 アクションアイテム
+| # | 担当者 | タスク内容 | 期限 | 優先度 |
+|---|--------|-----------|------|--------|
+
+## 📅 次回予定
+- 日時:
+- 議題:
 
 ---
-Transkripsi:
-{transcript}
-""",
+
+## 基本情報
+- 日時:
+- 参加者:
+
+## 討議サマリー
+
+## 保留事項・リスク""",
+            "en": """# Meeting Minutes (Action-Focused)
+
+## 🎯 Decisions (Immediate)
+
+## 📋 Action Items
+| # | Assignee | Task | Deadline | Priority |
+|---|----------|------|----------|----------|
+
+## 📅 Next Meeting
+- Date:
+- Agenda:
+
+---
+
+## Basic Information
+- Date/Time:
+- Participants:
+
+## Discussion Summary
+
+## Open Items / Risks""",
+            "zh": """# 会议纪要（行动导向）
+
+## 🎯 决定事项（立即执行）
+
+## 📋 行动项
+| # | 负责人 | 任务内容 | 截止日期 | 优先级 |
+|---|--------|---------|----------|--------|
+
+## 📅 下次会议
+- 日期:
+- 议题:
+
+---
+
+## 基本信息
+- 日期时间:
+- 参会人员:
+
+## 讨论摘要
+
+## 待定事项/风险""",
+            "ms": """# Minit Mesyuarat (Fokus Tindakan)
+
+## 🎯 Keputusan (Segera)
+
+## 📋 Tindakan Susulan
+| # | Bertanggungjawab | Tugasan | Tarikh Akhir | Keutamaan |
+|---|------------------|---------|--------------|-----------|
+
+## 📅 Mesyuarat Seterusnya
+- Tarikh:
+- Agenda:
+
+---
+
+## Maklumat Asas
+- Tarikh/Masa:
+- Peserta:
+
+## Ringkasan Perbincangan
+
+## Perkara Tertangguh / Risiko""",
+        },
+    },
+    "executive": {
+        "name": {"ja": "📊 エグゼクティブサマリー", "en": "📊 Executive Summary", "zh": "📊 高管摘要", "ms": "📊 Ringkasan Eksekutif"},
+        "description": {"ja": "経営層向け。要点を簡潔にまとめた短い報告形式",
+                        "en": "For leadership. Brief, high-level summary format",
+                        "zh": "面向管理层，简洁的高层摘要格式",
+                        "ms": "Untuk kepimpinan. Ringkasan ringkas peringkat tinggi"},
+        "template": {
+            "ja": """# エグゼクティブサマリー
+
+## 会議概要
+**日時:** / **参加者:** / **テーマ:**
+
+## 要旨（3行以内）
+
+## 主要な決定事項
+1.
+2.
+3.
+
+## 経営判断が必要な事項
+
+## 次のステップ
+
+## リスク・懸念事項""",
+            "en": """# Executive Summary
+
+## Meeting Overview
+**Date:** / **Participants:** / **Topic:**
+
+## Key Takeaways (3 lines max)
+
+## Major Decisions
+1.
+2.
+3.
+
+## Items Requiring Leadership Decision
+
+## Next Steps
+
+## Risks / Concerns""",
+            "zh": """# 高管摘要
+
+## 会议概要
+**日期:** / **参会人员:** / **主题:**
+
+## 要点（3行以内）
+
+## 主要决定
+1.
+2.
+3.
+
+## 需要管理层决策的事项
+
+## 下一步
+
+## 风险/关注事项""",
+            "ms": """# Ringkasan Eksekutif
+
+## Gambaran Mesyuarat
+**Tarikh:** / **Peserta:** / **Topik:**
+
+## Perkara Utama (3 baris maks)
+
+## Keputusan Utama
+1.
+2.
+3.
+
+## Perkara Memerlukan Keputusan Kepimpinan
+
+## Langkah Seterusnya
+
+## Risiko / Kebimbangan""",
+        },
+    },
+    "detailed": {
+        "name": {"ja": "📝 詳細記録", "en": "📝 Detailed Record", "zh": "📝 详细记录", "ms": "📝 Rekod Terperinci"},
+        "description": {"ja": "発言者ごとの意見を詳細に記録。証跡・監査向け",
+                        "en": "Detailed record with per-speaker opinions. For audit/compliance",
+                        "zh": "按发言人详细记录意见，适合审计/合规",
+                        "ms": "Rekod terperinci mengikut penutur. Untuk audit/pematuhan"},
+        "template": {
+            "ja": """# 詳細議事録
+
+## 基本情報
+- 日時:
+- 参加者:
+- 記録形式: 詳細記録
+
+## 議題
+
+## 発言記録
+### 議題1:
+- **[発言者名]**: （意見・発言の要約）
+- **[発言者名]**: （意見・発言の要約）
+→ **結論:**
+
+### 議題2:
+- **[発言者名]**: （意見・発言の要約）
+→ **結論:**
+
+## 全体の決定事項
+
+## アクションアイテム
+| 担当者 | 内容 | 期限 | 関連議題 |
+|--------|------|------|----------|
+
+## 未解決事項
+
+## 次回予定""",
+            "en": """# Detailed Meeting Record
+
+## Basic Information
+- Date/Time:
+- Participants:
+- Record Type: Detailed
+
+## Agenda
+
+## Discussion Record
+### Topic 1:
+- **[Speaker]**: (summary of opinion)
+- **[Speaker]**: (summary of opinion)
+→ **Conclusion:**
+
+### Topic 2:
+- **[Speaker]**: (summary of opinion)
+→ **Conclusion:**
+
+## Overall Decisions
+
+## Action Items
+| Assignee | Task | Deadline | Related Topic |
+|----------|------|----------|---------------|
+
+## Unresolved Items
+
+## Next Meeting""",
+            "zh": """# 详细会议记录
+
+## 基本信息
+- 日期时间:
+- 参会人员:
+- 记录类型: 详细记录
+
+## 议题
+
+## 发言记录
+### 议题1:
+- **[发言人]**: （意见摘要）
+- **[发言人]**: （意见摘要）
+→ **结论:**
+
+### 议题2:
+- **[发言人]**: （意见摘要）
+→ **结论:**
+
+## 整体决定事项
+
+## 行动项
+| 负责人 | 内容 | 截止日期 | 相关议题 |
+|--------|------|----------|----------|
+
+## 未解决事项
+
+## 下次会议""",
+            "ms": """# Rekod Mesyuarat Terperinci
+
+## Maklumat Asas
+- Tarikh/Masa:
+- Peserta:
+- Jenis Rekod: Terperinci
+
+## Agenda
+
+## Rekod Perbincangan
+### Topik 1:
+- **[Penutur]**: (ringkasan pendapat)
+- **[Penutur]**: (ringkasan pendapat)
+→ **Kesimpulan:**
+
+### Topik 2:
+- **[Penutur]**: (ringkasan pendapat)
+→ **Kesimpulan:**
+
+## Keputusan Keseluruhan
+
+## Tindakan Susulan
+| Bertanggungjawab | Tugasan | Tarikh Akhir | Topik Berkaitan |
+|------------------|---------|--------------|-----------------|
+
+## Perkara Belum Selesai
+
+## Mesyuarat Seterusnya""",
+        },
+    },
+    "oneonone": {
+        "name": {"ja": "👤 1on1 ミーティング", "en": "👤 1-on-1 Meeting", "zh": "👤 一对一会议", "ms": "👤 Mesyuarat 1-on-1"},
+        "description": {"ja": "上司と部下の1on1面談向け。フィードバック・目標・次回フォロー",
+                        "en": "For manager-report 1:1s. Feedback, goals, follow-ups",
+                        "zh": "上下级一对一面谈，反馈、目标、跟进",
+                        "ms": "Untuk mesyuarat 1:1 pengurus. Maklum balas, matlamat, susulan"},
+        "template": {
+            "ja": """# 1on1 ミーティングノート
+
+## 基本情報
+- 日時:
+- 参加者:
+
+## 前回のフォローアップ
+
+## 今回の議題
+### 業務状況・進捗
+
+### 課題・困っていること
+
+### フィードバック（双方向）
+
+### キャリア・成長
+
+## 合意事項・ネクストアクション
+| 誰が | 何を | いつまでに |
+|------|------|-----------|
+
+## 次回1on1
+- 日時:
+- フォローアップ項目:""",
+            "en": """# 1-on-1 Meeting Notes
+
+## Basic Information
+- Date/Time:
+- Participants:
+
+## Follow-up from Last Meeting
+
+## Today's Topics
+### Work Status / Progress
+
+### Challenges / Blockers
+
+### Feedback (Bidirectional)
+
+### Career / Growth
+
+## Agreements & Next Actions
+| Who | What | By When |
+|-----|------|---------|
+
+## Next 1-on-1
+- Date:
+- Follow-up Items:""",
+            "zh": """# 一对一会议记录
+
+## 基本信息
+- 日期时间:
+- 参会人员:
+
+## 上次会议跟进
+
+## 本次议题
+### 工作状态/进展
+
+### 挑战/障碍
+
+### 反馈（双向）
+
+### 职业发展
+
+## 共识与下一步行动
+| 负责人 | 任务 | 截止日期 |
+|--------|------|----------|
+
+## 下次一对一
+- 日期:
+- 跟进事项:""",
+            "ms": """# Nota Mesyuarat 1-on-1
+
+## Maklumat Asas
+- Tarikh/Masa:
+- Peserta:
+
+## Susulan Mesyuarat Lepas
+
+## Topik Hari Ini
+### Status Kerja / Kemajuan
+
+### Cabaran / Halangan
+
+### Maklum Balas (Dua Hala)
+
+### Kerjaya / Pertumbuhan
+
+## Persetujuan & Tindakan Seterusnya
+| Siapa | Apa | Bila |
+|-------|-----|------|
+
+## 1-on-1 Seterusnya
+- Tarikh:
+- Perkara Susulan:""",
+        },
+    },
+    "custom": {
+        "name": {"ja": "✏️ カスタム", "en": "✏️ Custom", "zh": "✏️ 自定义", "ms": "✏️ Tersuai"},
+        "description": {"ja": "自由にテンプレートを編集できます",
+                        "en": "Freely edit the template",
+                        "zh": "自由编辑模板",
+                        "ms": "Edit templat secara bebas"},
+        "template": {"ja": "", "en": "", "zh": "", "ms": ""},
+    },
 }
+
+
+def _build_summary_instruction(lang: str, template_text: str) -> str:
+    """テンプレートをもとに要約指示文を生成する。"""
+    placeholder = "{transcript}"
+    base = {
+        "ja": "以下はビジネス会議の文字起こしです。以下のテンプレートの構造・見出しに厳密に従って議事録を日本語で作成してください。テンプレートの各セクションに該当する内容を文字起こしから抽出して記入してください。該当内容がないセクションは「特になし」と記載してください。",
+        "en": 'Below is a meeting transcription. Create meeting minutes in English strictly following the structure and headings of the template below. Fill each section with relevant content from the transcription. If a section has no relevant content, write "N/A".',
+        "zh": "以下是会议的文字记录。请严格按照以下模板的结构和标题用中文撰写会议纪要。将文字记录中的相关内容填入各部分。如某部分无相关内容，请写「无」。",
+        "ms": 'Berikut ialah transkripsi mesyuarat. Sila buat minit mesyuarat dalam Bahasa Melayu mengikut struktur dan tajuk templat berikut dengan ketat. Isi setiap bahagian dengan kandungan berkaitan daripada transkripsi. Jika tiada kandungan berkaitan, tulis "Tiada".',
+    }
+    tpl_label = {"ja": "テンプレート", "en": "Template", "zh": "模板", "ms": "Templat"}
+    txt_label = {"ja": "文字起こし", "en": "Transcription", "zh": "文字记录", "ms": "Transkripsi"}
+    instruction = base.get(lang, base["ja"])
+    tl = tpl_label.get(lang, "テンプレート")
+    xl = txt_label.get(lang, "文字起こし")
+    return f"{instruction}\n\n【{tl}】\n{template_text}\n\n---\n{xl}:\n{placeholder}"
+
+
+# 後方互換のため残す（テンプレートなしの場合のフォールバック）
+SUMMARY_PROMPTS = {}
+for _lang_code in SUPPORTED_LANGUAGES:
+    _tpl = SUMMARY_TEMPLATES["standard"]["template"].get(_lang_code, "")
+    SUMMARY_PROMPTS[_lang_code] = _build_summary_instruction(_lang_code, _tpl)
 
 
 # デフォルト要約方針（UIでユーザーに見せる）
@@ -317,10 +724,23 @@ def get_transcript_prompt(lang: str = "ja", ctx: MeetingContext | None = None) -
     return prompt
 
 
-def get_summary_prompt(lang: str = "ja", ctx: MeetingContext | None = None) -> str:
-    prompt = SUMMARY_PROMPTS.get(lang, SUMMARY_PROMPTS["ja"])
+def get_summary_prompt(lang: str = "ja", ctx: MeetingContext | None = None,
+                       template_key: str = "standard", custom_template: str = "") -> str:
+    """テンプレートに基づいた要約プロンプトを生成する。"""
+    # テンプレートテキストを決定
+    if template_key == "custom" and custom_template:
+        template_text = custom_template
+    elif template_key in SUMMARY_TEMPLATES:
+        template_text = SUMMARY_TEMPLATES[template_key]["template"].get(lang, "")
+    else:
+        template_text = SUMMARY_TEMPLATES["standard"]["template"].get(lang, "")
+
+    if template_text:
+        prompt = _build_summary_instruction(lang, template_text)
+    else:
+        prompt = SUMMARY_PROMPTS.get(lang, SUMMARY_PROMPTS["ja"])
+
     if ctx:
-        # 会議メタ情報を要約プロンプトにも注入
         meta_parts = []
         if ctx.date or ctx.time:
             meta_parts.append(f"日時: {ctx.date} {ctx.time}".strip())
@@ -766,11 +1186,12 @@ def correct_transcript(client, raw_transcript, model, lang="ja", ctx=None, on_pr
     )
 
 
-def summarize(client, transcript_text, model, lang="ja", ctx=None, on_progress=None):
+def summarize(client, transcript_text, model, lang="ja", ctx=None,
+              template_key="standard", custom_template="", on_progress=None):
     """文字起こしテキストから議事録要約を生成する。response を返す。"""
     return _generate_with_retry(
         client, model,
-        contents=get_summary_prompt(lang, ctx).format(transcript=transcript_text),
+        contents=get_summary_prompt(lang, ctx, template_key, custom_template).format(transcript=transcript_text),
         on_progress=on_progress,
         label="議事録生成",
     )
@@ -785,6 +1206,8 @@ def run_pipeline(
     lang: str = "ja",
     ctx: MeetingContext | None = None,
     reference_files: list[str] | None = None,
+    template_key: str = "standard",
+    custom_template: str = "",
     output_dir: str = ".",
     output_prefix: str | None = None,
     on_progress=None,
@@ -795,6 +1218,8 @@ def run_pipeline(
         lang: 出力言語コード ("ja", "en", "zh", "ms")
         ctx: 会議メタ情報・キーワード・指示等
         reference_files: 参考資料ファイルパスのリスト (PDF等)
+        template_key: 要約テンプレートキー ("standard", "action_focused", "executive", "detailed", "oneonone", "custom")
+        custom_template: カスタムテンプレートテキスト（template_key="custom"時）
 
     Returns:
         (transcript_text, summary_text, transcript_path, summary_path, usage_stats)
@@ -927,7 +1352,7 @@ def run_pipeline(
         label = f"[議事録] 議事録生成中 ({lang_name})..." if chunks else f"[3/4] 議事録生成中 ({lang_name})..."
         on_progress("step", label)
 
-    resp2 = summarize(client, transcript, model, lang, ctx, on_progress)
+    resp2 = summarize(client, transcript, model, lang, ctx, template_key, custom_template, on_progress)
     summary = resp2.text
     if resp2.usage_metadata:
         usage.add("議事録生成", resp2.usage_metadata)

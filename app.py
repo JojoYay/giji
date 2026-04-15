@@ -15,7 +15,7 @@ from dotenv import load_dotenv
 
 from gemini_transcribe_v2 import (
     run_pipeline, MODEL_PRICING, SUPPORTED_LANGUAGES,
-    DEFAULT_SUMMARY_GUIDELINES, MeetingContext,
+    DEFAULT_SUMMARY_GUIDELINES, MeetingContext, SUMMARY_TEMPLATES,
 )
 
 load_dotenv()
@@ -66,6 +66,35 @@ ref_files = st.file_uploader(
 )
 
 # ───────── 詳細オプション ─────────
+# ───────── テンプレート選択 ─────────
+st.subheader("📑 議事録テンプレート")
+template_keys = list(SUMMARY_TEMPLATES.keys())
+template_names = [SUMMARY_TEMPLATES[k]["name"].get(lang, SUMMARY_TEMPLATES[k]["name"]["ja"]) for k in template_keys]
+template_descs = [SUMMARY_TEMPLATES[k]["description"].get(lang, SUMMARY_TEMPLATES[k]["description"]["ja"]) for k in template_keys]
+
+selected_idx = st.selectbox(
+    "テンプレートを選択",
+    range(len(template_keys)),
+    format_func=lambda i: f"{template_names[i]} — {template_descs[i]}",
+    index=0,
+    label_visibility="collapsed",
+)
+selected_template_key = template_keys[selected_idx]
+
+# テンプレートプレビュー・編集
+custom_template_text = ""
+default_tpl = SUMMARY_TEMPLATES[selected_template_key]["template"].get(lang, "")
+if selected_template_key == "custom":
+    st.caption("自由にテンプレートを作成してください。Markdown形式の見出し（## ）でセクションを定義します。")
+    custom_template_text = st.text_area("テンプレート編集", value="", height=300, key="custom_tpl")
+else:
+    with st.expander("📖 テンプレートをプレビュー・編集", expanded=False):
+        edited_tpl = st.text_area("テンプレート", value=default_tpl, height=300, key="tpl_edit")
+        if edited_tpl != default_tpl:
+            selected_template_key = "custom"
+            custom_template_text = edited_tpl
+            st.info("テンプレートが編集されました。カスタムテンプレートとして使用します。")
+
 with st.expander("🔧 詳細オプション（キーワード・用語辞書・要約指示）", expanded=False):
     st.markdown("##### 🏷️ 重要キーワード")
     st.caption("固有名詞・専門用語など、正確に書き起こしたいキーワード")
@@ -173,6 +202,8 @@ if run_button:
             lang=lang,
             ctx=ctx,
             reference_files=ref_paths or None,
+            template_key=selected_template_key,
+            custom_template=custom_template_text,
             output_dir=output_dir,
             output_prefix=prefix or Path(uploaded_file.name).stem,
             on_progress=on_progress,

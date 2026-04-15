@@ -15,7 +15,7 @@ from dotenv import load_dotenv
 
 from gemini_transcribe_v2 import (
     run_pipeline, MODEL_PRICING, SUPPORTED_LANGUAGES,
-    DEFAULT_SUMMARY_GUIDELINES, MeetingContext,
+    DEFAULT_SUMMARY_GUIDELINES, MeetingContext, SUMMARY_TEMPLATES,
 )
 
 # ───────── 設定読み込み ─────────
@@ -222,6 +222,8 @@ elif param_session_id and param_file_id:
     # session_stateからMeetingContext・参考資料を取得
     ctx = st.session_state.get("paid_ctx", MeetingContext())
     ref_paths = st.session_state.get("paid_ref_paths", [])
+    tpl_key = st.session_state.get("paid_template_key", "standard")
+    tpl_custom = st.session_state.get("paid_custom_template", "")
 
     try:
         transcript, summary, t_path, s_path, usage = run_pipeline(
@@ -231,6 +233,8 @@ elif param_session_id and param_file_id:
             lang=payment["lang"],
             ctx=ctx,
             reference_files=ref_paths or None,
+            template_key=tpl_key,
+            custom_template=tpl_custom,
             output_dir="output",
             output_prefix=Path(payment["file_name"]).stem,
             on_progress=on_progress,
@@ -368,6 +372,27 @@ else:
     lang = st.selectbox("🌐 出力言語", options=list(SUPPORTED_LANGUAGES.keys()),
                         format_func=lambda k: SUPPORTED_LANGUAGES[k], index=0, key="pd_lang")
 
+    # テンプレート選択
+    st.subheader("📑 議事録テンプレート")
+    _tpl_keys = list(SUMMARY_TEMPLATES.keys())
+    _tpl_names = [SUMMARY_TEMPLATES[k]["name"].get(lang, SUMMARY_TEMPLATES[k]["name"]["ja"]) for k in _tpl_keys]
+    _tpl_descs = [SUMMARY_TEMPLATES[k]["description"].get(lang, SUMMARY_TEMPLATES[k]["description"]["ja"]) for k in _tpl_keys]
+    _sel_idx = st.selectbox("テンプレート", range(len(_tpl_keys)),
+        format_func=lambda i: f"{_tpl_names[i]} — {_tpl_descs[i]}",
+        index=0, label_visibility="collapsed", key="pd_tpl")
+    paid_template_key = _tpl_keys[_sel_idx]
+    paid_custom_template = ""
+    _def_tpl = SUMMARY_TEMPLATES[paid_template_key]["template"].get(lang, "")
+    if paid_template_key == "custom":
+        paid_custom_template = st.text_area("テンプレート編集", value="", height=300, key="pd_ctpl")
+    else:
+        with st.expander("📖 テンプレートプレビュー・編集"):
+            _ed_tpl = st.text_area("テンプレート", value=_def_tpl, height=250, key="pd_tpl_edit")
+            if _ed_tpl != _def_tpl:
+                paid_template_key = "custom"
+                paid_custom_template = _ed_tpl
+                st.info("カスタムテンプレートとして使用します。")
+
     # ファイル
     st.subheader("📁 ファイル")
     uploaded_file = st.file_uploader("🎤 音声/動画ファイル",
@@ -417,6 +442,8 @@ else:
                 st.stop()
 
             # session_stateに全パラメータ保存
+            st.session_state["paid_template_key"] = paid_template_key
+            st.session_state["paid_custom_template"] = paid_custom_template
             st.session_state["paid_ctx"] = MeetingContext(
                 date=str(meeting_date), time=meeting_time,
                 topic=meeting_topic, participants=meeting_participants,

@@ -409,10 +409,10 @@ else:
     # 詳細オプション
     with st.expander("🔧 詳細オプション", expanded=False):
         st.markdown("##### 🏷️ 重要キーワード")
-        paid_keywords = st.text_area("キーワード", placeholder="例: MJS, 住宅手当",
+        paid_keywords = st.text_area("キーワード", placeholder="例: 住宅手当, RPA, KPI",
                                      height=68, label_visibility="collapsed", key="pd_kw")
         st.markdown("##### 📖 専門用語辞書")
-        paid_glossary = st.text_area("用語辞書", placeholder="例:\nMJS = ミロク情報サービス\nRPA = Robotic Process Automation",
+        paid_glossary = st.text_area("用語辞書", placeholder="例:\nRPA = Robotic Process Automation\nKPI = Key Performance Indicator",
                                      height=100, label_visibility="collapsed", key="pd_gls")
         st.markdown("##### 📋 要約の方針")
         guidelines = DEFAULT_SUMMARY_GUIDELINES.get(lang, DEFAULT_SUMMARY_GUIDELINES["ja"])

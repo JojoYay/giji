@@ -650,8 +650,8 @@ class MeetingContext:
     time: str = ""              # "10:00-12:00"
     topic: str = ""             # "住宅手当の減額に関する協議"
     participants: str = ""      # "山田, 吉田, 渡辺"
-    keywords: str = ""          # "住宅手当, 内部通報, MJS"
-    glossary: str = ""          # "MJS=ミロク情報サービス\nRPA=Robotic Process Automation"
+    keywords: str = ""          # "住宅手当, RPA, KPI"
+    glossary: str = ""          # "RPA=Robotic Process Automation\nKPI=Key Performance Indicator"
     custom_instructions: str = ""  # "ですます調で / アクションプランを詳細に"
     reference_texts: list = field(default_factory=list)  # 参考資料のテキスト抽出結果
 

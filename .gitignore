@@ -29,5 +29,8 @@ Thumbs.db
 .streamlit/*
 !.streamlit/config.toml
 
+# GCP keys
+*-key.json
+
 # Temp
 *.tmp

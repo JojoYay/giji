@@ -3,6 +3,7 @@
 起動: streamlit run app_paid.py
 """
 
+import base64
 import json
 import os
 import uuid
@@ -39,8 +40,43 @@ st.set_page_config(
     layout="wide",
 )
 
+# ───────── フォーム状態の復元（URLパラメータから）─────────
+# /upload ページから戻った時に、state パラメータにエンコードされた
+# フォーム値を session_state に復元する。
+try:
+    _state_param = st.query_params.get("state", None)
+    if isinstance(_state_param, list):
+        _state_param = _state_param[0] if _state_param else None
+    if _state_param and not st.session_state.get("_form_restored"):
+        _decoded = json.loads(base64.urlsafe_b64decode(_state_param.encode()).decode())
+        for k, v in _decoded.items():
+            if k not in st.session_state:
+                st.session_state[k] = v
+        st.session_state["_form_restored"] = True
+except Exception:
+    pass
+
 st.title("📝 会議 文字起こし・議事録生成")
 st.caption("音声/動画ファイルから文字起こしと議事録を自動生成します")
+
+
+def _encode_form_state() -> str:
+    """現在のフォーム状態（pd_*）をbase64 JSONでエンコードする。"""
+    state = {}
+    for k, v in st.session_state.items():
+        if not k.startswith("pd_"):
+            continue
+        # 日付など非シリアライズ型を文字列化
+        if hasattr(v, "isoformat"):
+            state[k] = v.isoformat()
+        elif isinstance(v, (str, int, float, bool, list, dict)) or v is None:
+            state[k] = v
+        else:
+            state[k] = str(v)
+    try:
+        return base64.urlsafe_b64encode(json.dumps(state, ensure_ascii=False).encode()).decode()
+    except Exception:
+        return ""
 
 
 # ───────── ユーティリティ ─────────
@@ -462,8 +498,15 @@ else:
             st.session_state["gcs_filename"] = urllib.parse.unquote(_gcs_fn) if _gcs_fn else "recording.mp4"
             if _gcs_refs:
                 st.session_state["gcs_ref_blobs"] = [b.strip() for b in urllib.parse.unquote(_gcs_refs).split(",") if b.strip()]
-            st.query_params.clear()
+            # GCS関連のパラメータのみ削除し、state は残す（rerunでそのまま保持される）
+            for _k in ("gcs_blob", "gcs_fn", "gcs_refs"):
+                if _k in st.query_params:
+                    del st.query_params[_k]
             st.rerun()
+
+        # フォーム状態をエンコードしてアップロードページに渡す（戻り時に復元）
+        _form_state = _encode_form_state()
+        _upload_link = f"/upload?state={_form_state}" if _form_state else "/upload"
 
         if st.session_state.get("gcs_blob"):
             _fn = st.session_state.get("gcs_filename", "")
@@ -477,11 +520,11 @@ else:
                 else:
                     st.caption("📄 参考資料: なし")
             with _col2:
-                st.link_button("🔄 やり直す", "/upload", use_container_width=True)
+                st.link_button("🔄 やり直す", _upload_link, use_container_width=True)
         else:
             st.link_button(
                 "📤 音声/動画ファイル＆参考資料をアップロード",
-                "/upload",
+                _upload_link,
                 use_container_width=True,
             )
             st.caption("大容量ファイル対応。音声ファイルと参考資料をまとめてアップロードできます。")

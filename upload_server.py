@@ -219,6 +219,12 @@ function goNext() {
   if (refBlobs.length > 0) {
     url += '&gcs_refs=' + encodeURIComponent(refBlobs.join(','));
   }
+  // 戻り時にフォーム状態を保持する state パラメータを引き継ぐ
+  const params = new URLSearchParams(window.location.search);
+  const state = params.get('state');
+  if (state) {
+    url += '&state=' + encodeURIComponent(state);
+  }
   window.location.href = url;
 }
 </script>

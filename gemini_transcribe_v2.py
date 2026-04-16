@@ -1101,12 +1101,30 @@ def _safe_copy_for_upload(file_path: str) -> str | None:
         return tmp.name
 
 
+MIME_MAP = {
+    ".mp4": "video/mp4", ".m4a": "audio/mp4", ".wav": "audio/wav",
+    ".mp3": "audio/mpeg", ".webm": "video/webm", ".ogg": "audio/ogg",
+    ".flac": "audio/flac", ".mkv": "video/x-matroska", ".avi": "video/x-msvideo",
+    ".mov": "video/quicktime", ".aac": "audio/aac", ".wma": "audio/x-ms-wma",
+    ".pdf": "application/pdf", ".txt": "text/plain", ".csv": "text/csv",
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+}
+
+
 def upload_and_wait(client, file_path: str, on_progress=None):
     """ファイルをGeminiにアップロードし、処理完了まで待機する。"""
     tmp_copy = _safe_copy_for_upload(file_path)
     upload_path = tmp_copy or file_path
+    # 拡張子からmime_typeを明示指定
+    ext = Path(file_path).suffix.lower()
+    mime_type = MIME_MAP.get(ext)
     try:
-        uploaded = client.files.upload(file=upload_path)
+        upload_kwargs = {"file": upload_path}
+        if mime_type:
+            upload_kwargs["config"] = {"mime_type": mime_type}
+        uploaded = client.files.upload(**upload_kwargs)
     finally:
         if tmp_copy:
             try:

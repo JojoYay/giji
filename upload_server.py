@@ -1,167 +1,207 @@
 """
 GCS アップロード用 FastAPI サーバー
-Streamlit と同じコンテナ内で動作し、以下を提供:
   GET  /upload          → アップロード用HTMLページ
   POST /api/upload-url  → GCS resumable upload URL を生成
 """
 
 import os
-import json
-from pathlib import Path
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI()
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-UPLOAD_HTML = """<!DOCTYPE html>
+UPLOAD_HTML = r"""<!DOCTYPE html>
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>ファイルアップロード - 議事録生成</title>
 <style>
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: #f5f7fa; min-height: 100vh; display: flex; align-items: center; justify-content: center; }
-  .container { background: white; border-radius: 16px; padding: 40px; max-width: 600px; width: 90%; box-shadow: 0 4px 24px rgba(0,0,0,0.1); }
-  h1 { font-size: 24px; margin-bottom: 8px; }
-  .subtitle { color: #666; margin-bottom: 24px; font-size: 14px; }
-  .drop-zone { border: 2px dashed #ccc; border-radius: 12px; padding: 40px 20px; text-align: center; cursor: pointer; transition: all 0.3s; }
-  .drop-zone:hover, .drop-zone.dragover { border-color: #ff4b4b; background: #fff5f5; }
-  .drop-zone p { font-size: 16px; color: #333; margin-bottom: 8px; }
-  .drop-zone .formats { font-size: 12px; color: #999; }
-  .drop-zone input { display: none; }
-  .btn { display: inline-block; background: #ff4b4b; color: white; border: none; padding: 10px 28px; border-radius: 8px; font-size: 15px; cursor: pointer; margin-top: 12px; }
-  .btn:hover { background: #e03e3e; }
-  .file-info { margin-top: 16px; padding: 12px 16px; background: #f0f2f6; border-radius: 8px; font-size: 14px; }
-  .progress-wrap { margin-top: 16px; display: none; }
-  .progress-bar-bg { background: #e0e0e0; border-radius: 8px; height: 32px; overflow: hidden; }
-  .progress-bar { background: #ff4b4b; height: 100%; width: 0%; transition: width 0.3s; border-radius: 8px; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 14px; }
-  .progress-text { color: #666; margin-top: 8px; font-size: 13px; text-align: center; }
-  .done { margin-top: 16px; padding: 20px; background: #d4edda; border-radius: 8px; text-align: center; display: none; }
-  .done h2 { color: #155724; font-size: 20px; margin-bottom: 8px; }
-  .done p { color: #155724; font-size: 14px; }
-  .done .btn { background: #28a745; margin-top: 12px; text-decoration: none; display: inline-block; }
-  .error { margin-top: 16px; color: #dc3545; display: none; text-align: center; }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#f5f7fa;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
+  .container{background:white;border-radius:16px;padding:36px;max-width:640px;width:100%;box-shadow:0 4px 24px rgba(0,0,0,0.1)}
+  h1{font-size:22px;margin-bottom:6px}
+  .sub{color:#666;margin-bottom:20px;font-size:13px}
+  .section{margin-bottom:24px}
+  .section h2{font-size:16px;margin-bottom:8px;color:#333}
+  .drop{border:2px dashed #ccc;border-radius:10px;padding:28px 16px;text-align:center;cursor:pointer;transition:all .3s}
+  .drop:hover,.drop.over{border-color:#ff4b4b;background:#fff5f5}
+  .drop input{display:none}
+  .btn{background:#ff4b4b;color:#fff;border:none;padding:9px 24px;border-radius:8px;font-size:14px;cursor:pointer;margin-top:8px}
+  .btn:hover{background:#e03e3e}
+  .btn-green{background:#28a745}
+  .btn-green:hover{background:#218838}
+  .info{margin-top:10px;padding:10px 14px;background:#f0f2f6;border-radius:8px;font-size:13px;display:none}
+  .prog{margin-top:12px;display:none}
+  .prog-bg{background:#e0e0e0;border-radius:8px;height:28px;overflow:hidden}
+  .prog-bar{background:#ff4b4b;height:100%;width:0;transition:width .3s;border-radius:8px;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:bold;font-size:13px}
+  .prog-text{color:#666;margin-top:6px;font-size:12px;text-align:center}
+  .done{margin-top:12px;padding:14px;background:#d4edda;border-radius:8px;text-align:center;display:none}
+  .done p{color:#155724;font-size:15px;font-weight:bold}
+  .err{color:#dc3545;margin-top:8px;display:none;text-align:center;font-size:13px}
+  .ref-list{margin-top:8px;font-size:13px;color:#333}
+  .ref-item{padding:4px 0;display:flex;align-items:center;gap:6px}
+  .ref-item .check{color:#28a745}
+  .final{margin-top:20px;text-align:center;display:none}
+  .final a{display:inline-block;background:#28a745;color:#fff;padding:12px 32px;border-radius:10px;font-size:16px;text-decoration:none;font-weight:bold}
+  .final a:hover{background:#218838}
 </style>
 </head>
 <body>
 <div class="container">
   <h1>📝 会議 文字起こし・議事録生成</h1>
-  <p class="subtitle">音声/動画ファイルをアップロードしてください</p>
+  <p class="sub">ファイルをアップロードしてください。完了後、議事録生成ページに戻ります。</p>
 
-  <div class="drop-zone" id="dropZone">
-    <p>🎤 ファイルをドラッグ＆ドロップ</p>
-    <p>または</p>
-    <button class="btn" onclick="document.getElementById('fileInput').click()">ファイルを選択</button>
-    <input type="file" id="fileInput" accept=".mp4,.m4a,.wav,.mp3,.webm,.ogg,.flac,.mkv,.avi,.mov" />
-    <p class="formats">対応形式: MP4, M4A, WAV, MP3, WEBM, OGG, FLAC, MKV, AVI, MOV</p>
-  </div>
-
-  <div class="file-info" id="fileInfo" style="display:none;"></div>
-
-  <div class="progress-wrap" id="progressWrap">
-    <div class="progress-bar-bg">
-      <div class="progress-bar" id="progressBar">0%</div>
+  <!-- 音声/動画ファイル -->
+  <div class="section">
+    <h2>🎤 音声/動画ファイル（必須）</h2>
+    <div class="drop" id="mainDrop" onclick="document.getElementById('mainInput').click()">
+      <p>ファイルをドラッグ＆ドロップ、または</p>
+      <button class="btn">ファイルを選択</button>
+      <input type="file" id="mainInput" accept=".mp4,.m4a,.wav,.mp3,.webm,.ogg,.flac,.mkv,.avi,.mov"/>
+      <p style="color:#999;font-size:11px;margin-top:6px">MP4, M4A, WAV, MP3, WEBM, OGG, FLAC</p>
     </div>
-    <p class="progress-text" id="progressText"></p>
+    <div class="info" id="mainInfo"></div>
+    <div class="prog" id="mainProg"><div class="prog-bg"><div class="prog-bar" id="mainBar">0%</div></div><p class="prog-text" id="mainText"></p></div>
+    <div class="done" id="mainDone"><p>✅ アップロード完了</p></div>
+    <p class="err" id="mainErr"></p>
   </div>
 
-  <div class="done" id="doneArea">
-    <h2>✅ アップロード完了！</h2>
-    <p>議事録生成ページに移動します...</p>
-    <a class="btn" id="continueBtn" href="#">議事録生成ページへ →</a>
+  <!-- 参考資料 -->
+  <div class="section">
+    <h2>📄 参考資料（任意）</h2>
+    <p style="color:#888;font-size:12px;margin-bottom:8px">PDF・Word・PowerPoint等。複数選択可。文字起こし精度が向上します。</p>
+    <div class="drop" id="refDrop" onclick="document.getElementById('refInput').click()">
+      <p>参考資料をドラッグ＆ドロップ、または</p>
+      <button class="btn" style="background:#6c757d">ファイルを選択</button>
+      <input type="file" id="refInput" accept=".pdf,.txt,.docx,.pptx,.xlsx,.csv,.md" multiple/>
+    </div>
+    <div class="ref-list" id="refList"></div>
+    <p class="err" id="refErr"></p>
   </div>
 
-  <p class="error" id="errorText"></p>
+  <!-- 完了 → Streamlitへ -->
+  <div class="final" id="finalArea">
+    <p style="margin-bottom:12px;color:#333">すべてのアップロードが完了しました！</p>
+    <a id="continueLink" href="#">議事録生成ページへ進む →</a>
+    <p style="color:#888;font-size:12px;margin-top:8px">3秒後に自動で移動します</p>
+  </div>
 </div>
 
 <script>
-const dropZone = document.getElementById('dropZone');
-const fileInput = document.getElementById('fileInput');
-const fileInfo = document.getElementById('fileInfo');
-const progressWrap = document.getElementById('progressWrap');
-const progressBar = document.getElementById('progressBar');
-const progressText = document.getElementById('progressText');
-const doneArea = document.getElementById('doneArea');
-const continueBtn = document.getElementById('continueBtn');
-const errorText = document.getElementById('errorText');
+let mainBlob = null;
+let mainFilename = null;
+const refBlobs = [];
 
-// ドラッグ＆ドロップ
-dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('dragover'); });
-dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
-dropZone.addEventListener('drop', e => { e.preventDefault(); dropZone.classList.remove('dragover'); if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]); });
-fileInput.addEventListener('change', () => { if (fileInput.files[0]) handleFile(fileInput.files[0]); });
+// --- 汎用アップロード関数 ---
+async function uploadFile(file, onProgress) {
+  const resp = await fetch('/api/upload-url', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({filename: file.name, content_type: file.type || 'application/octet-stream'})
+  });
+  if (!resp.ok) throw new Error('URL生成エラー: ' + resp.status);
+  const data = await resp.json();
+  if (data.error) throw new Error(data.error);
 
-async function handleFile(file) {
-  const sizeMB = (file.size / 1024 / 1024).toFixed(1);
-  fileInfo.textContent = '📁 ' + file.name + ' (' + sizeMB + ' MB)';
-  fileInfo.style.display = 'block';
-  errorText.style.display = 'none';
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('PUT', data.upload_url, true);
+    xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
+    xhr.upload.onprogress = onProgress;
+    xhr.onload = () => (xhr.status >= 200 && xhr.status < 400) ? resolve(data.blob_name) : reject(new Error('HTTP ' + xhr.status));
+    xhr.onerror = () => reject(new Error('ネットワークエラー'));
+    xhr.send(file);
+  });
+}
 
-  // サーバーからGCSアップロードURLを取得
+// --- メインファイル ---
+const mainDrop = document.getElementById('mainDrop');
+const mainInput = document.getElementById('mainInput');
+mainDrop.addEventListener('dragover', e => { e.preventDefault(); mainDrop.classList.add('over'); });
+mainDrop.addEventListener('dragleave', () => mainDrop.classList.remove('over'));
+mainDrop.addEventListener('drop', e => { e.preventDefault(); mainDrop.classList.remove('over'); if(e.dataTransfer.files[0]) handleMain(e.dataTransfer.files[0]); });
+mainInput.addEventListener('change', () => { if(mainInput.files[0]) handleMain(mainInput.files[0]); });
+
+async function handleMain(file) {
+  const info = document.getElementById('mainInfo');
+  const prog = document.getElementById('mainProg');
+  const bar = document.getElementById('mainBar');
+  const text = document.getElementById('mainText');
+  const done = document.getElementById('mainDone');
+  const err = document.getElementById('mainErr');
+
+  info.textContent = '📁 ' + file.name + ' (' + (file.size/1024/1024).toFixed(1) + ' MB)';
+  info.style.display = 'block';
+  prog.style.display = 'block';
+  done.style.display = 'none';
+  err.style.display = 'none';
+  mainDrop.style.display = 'none';
+
   try {
-    const resp = await fetch('/api/upload-url', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({filename: file.name, content_type: file.type || 'application/octet-stream'})
+    mainBlob = await uploadFile(file, e => {
+      if (e.lengthComputable) {
+        const pct = Math.round(e.loaded / e.total * 100);
+        bar.style.width = pct + '%'; bar.textContent = pct + '%';
+        text.textContent = (e.loaded/1024/1024).toFixed(1) + ' / ' + (e.total/1024/1024).toFixed(1) + ' MB';
+      }
     });
-    if (!resp.ok) throw new Error('URL生成エラー: ' + resp.status);
-    const data = await resp.json();
-
-    // GCSに直接アップロード
-    uploadToGCS(file, data.upload_url, data.blob_name);
+    mainFilename = file.name;
+    prog.style.display = 'none';
+    done.style.display = 'block';
+    checkAllDone();
   } catch(e) {
-    errorText.textContent = e.message;
-    errorText.style.display = 'block';
+    err.textContent = e.message; err.style.display = 'block';
+    mainDrop.style.display = 'block'; prog.style.display = 'none';
   }
 }
 
-function uploadToGCS(file, uploadUrl, blobName) {
-  progressWrap.style.display = 'block';
-  dropZone.style.display = 'none';
+// --- 参考資料 ---
+const refDrop = document.getElementById('refDrop');
+const refInput = document.getElementById('refInput');
+refDrop.addEventListener('dragover', e => { e.preventDefault(); refDrop.classList.add('over'); });
+refDrop.addEventListener('dragleave', () => refDrop.classList.remove('over'));
+refDrop.addEventListener('drop', e => { e.preventDefault(); refDrop.classList.remove('over'); handleRefs(e.dataTransfer.files); });
+refInput.addEventListener('change', () => handleRefs(refInput.files));
 
-  const xhr = new XMLHttpRequest();
-  xhr.open('PUT', uploadUrl, true);
-  xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
+async function handleRefs(files) {
+  const list = document.getElementById('refList');
+  const err = document.getElementById('refErr');
+  err.style.display = 'none';
 
-  xhr.upload.onprogress = function(e) {
-    if (e.lengthComputable) {
-      const pct = Math.round(e.loaded / e.total * 100);
-      progressBar.style.width = pct + '%';
-      progressBar.textContent = pct + '%';
-      progressText.textContent = (e.loaded/1024/1024).toFixed(1) + ' MB / ' + (e.total/1024/1024).toFixed(1) + ' MB';
+  for (const file of files) {
+    const item = document.createElement('div');
+    item.className = 'ref-item';
+    item.innerHTML = '⏳ ' + file.name + ' (' + (file.size/1024/1024).toFixed(1) + ' MB) アップロード中...';
+    list.appendChild(item);
+
+    try {
+      const blob = await uploadFile(file, () => {});
+      refBlobs.push(blob);
+      item.innerHTML = '<span class="check">✅</span> ' + file.name + ' — 完了';
+    } catch(e) {
+      item.innerHTML = '❌ ' + file.name + ' — ' + e.message;
     }
-  };
+  }
+  checkAllDone();
+}
 
-  xhr.onload = function() {
-    if (xhr.status >= 200 && xhr.status < 400) {
-      progressWrap.style.display = 'none';
-      doneArea.style.display = 'block';
-      // Streamlitページにblob_nameを渡してリダイレクト
-      const streamlitUrl = window.location.origin + '/?gcs_blob=' + encodeURIComponent(blobName) + '&gcs_fn=' + encodeURIComponent(file.name);
-      continueBtn.href = streamlitUrl;
-      // 2秒後に自動リダイレクト
-      setTimeout(() => { window.location.href = streamlitUrl; }, 2000);
-    } else {
-      errorText.textContent = 'アップロードエラー: HTTP ' + xhr.status;
-      errorText.style.display = 'block';
-    }
-  };
+// --- 完了チェック ---
+function checkAllDone() {
+  if (!mainBlob) return;
+  const final = document.getElementById('finalArea');
+  const link = document.getElementById('continueLink');
 
-  xhr.onerror = function() {
-    errorText.textContent = 'ネットワークエラーが発生しました。再試行してください。';
-    errorText.style.display = 'block';
-  };
-
-  xhr.send(file);
+  // StreamlitへのリダイレクトURL構築
+  let url = window.location.origin + '/?gcs_blob=' + encodeURIComponent(mainBlob) + '&gcs_fn=' + encodeURIComponent(mainFilename);
+  if (refBlobs.length > 0) {
+    url += '&gcs_refs=' + encodeURIComponent(refBlobs.join(','));
+  }
+  link.href = url;
+  final.style.display = 'block';
+  setTimeout(() => { window.location.href = url; }, 3000);
 }
 </script>
 </body>
@@ -170,18 +210,15 @@ function uploadToGCS(file, uploadUrl, blobName) {
 
 @app.get("/upload", response_class=HTMLResponse)
 async def upload_page():
-    """アップロード用HTMLページを返す。"""
     return UPLOAD_HTML
 
 
 @app.post("/api/upload-url")
 async def create_upload_url(body: dict):
-    """GCS resumable upload URL を生成する。"""
     try:
         from gcs_upload import generate_resumable_upload_url
         filename = body.get("filename", "upload.mp4")
         content_type = body.get("content_type", "application/octet-stream")
-        # Origin はリクエストヘッダーから取得したいが、簡易版では * を使う
         origin = os.environ.get("APP_ORIGIN", "https://giji-700896522925.asia-northeast1.run.app")
         url, blob_name = generate_resumable_upload_url(filename, content_type, origin)
         return JSONResponse({"upload_url": url, "blob_name": blob_name})

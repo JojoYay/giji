@@ -238,6 +238,19 @@ elif param_session_id and param_file_id:
     tpl_key = st.session_state.get("paid_template_key", "standard")
     tpl_custom = st.session_state.get("paid_custom_template", "")
 
+    # GCSモードの参考資料をダウンロード
+    _ref_gcs_tmps = []
+    ref_blobs = st.session_state.get("paid_ref_blobs", [])
+    if ref_blobs:
+        from gcs_upload import download_from_gcs as _dl_ref
+        for rb in ref_blobs:
+            try:
+                tmp = _dl_ref(rb)
+                ref_paths.append(tmp)
+                _ref_gcs_tmps.append(tmp)
+            except Exception as e:
+                st.warning(f"参考資料のダウンロードに失敗: {rb}: {e}")
+
     try:
         transcript, summary, t_path, s_path, usage = run_pipeline(
             file_path=str(file_path),
@@ -276,6 +289,7 @@ elif param_session_id and param_file_id:
         st.error(f"処理エラー: {e}")
 
     finally:
+        # メインファイルのクリーンアップ
         if file_id.startswith("uploads/"):
             try:
                 from gcs_upload import delete_from_gcs
@@ -287,6 +301,18 @@ elif param_session_id and param_file_id:
         if _gcs_tmp and os.path.exists(_gcs_tmp):
             try:
                 os.unlink(_gcs_tmp)
+            except Exception:
+                pass
+        # 参考資料のクリーンアップ
+        for _rt in _ref_gcs_tmps:
+            try:
+                os.unlink(_rt)
+            except Exception:
+                pass
+        for rb in ref_blobs:
+            try:
+                from gcs_upload import delete_from_gcs as _del
+                _del(rb)
             except Exception:
                 pass
         st.query_params.clear()
@@ -429,23 +455,28 @@ else:
         # アップロード完了後のリダイレクトでblob情報を受け取る
         _gcs_blob = _get_param("gcs_blob")
         _gcs_fn = _get_param("gcs_fn")
+        _gcs_refs = _get_param("gcs_refs")
         if _gcs_blob:
             import urllib.parse
             st.session_state["gcs_blob"] = urllib.parse.unquote(_gcs_blob)
             st.session_state["gcs_filename"] = urllib.parse.unquote(_gcs_fn) if _gcs_fn else "recording.mp4"
-            # query paramsをクリア（二重処理防止）
+            if _gcs_refs:
+                st.session_state["gcs_ref_blobs"] = [b.strip() for b in urllib.parse.unquote(_gcs_refs).split(",") if b.strip()]
             st.query_params.clear()
             st.rerun()
 
         if st.session_state.get("gcs_blob"):
             st.success(f"✅ **{st.session_state.get('gcs_filename', '')}** — アップロード済み")
+            _ref_blobs = st.session_state.get("gcs_ref_blobs", [])
+            if _ref_blobs:
+                st.info(f"📄 参考資料 {len(_ref_blobs)}件 アップロード済み")
         else:
             st.link_button(
-                "📤 音声/動画ファイルをアップロード",
+                "📤 音声/動画ファイル＆参考資料をアップロード",
                 "/upload",
                 use_container_width=True,
             )
-            st.caption("大容量ファイル対応。アップロード完了後、自動でこのページに戻ります。")
+            st.caption("大容量ファイル対応。音声ファイルと参考資料をまとめてアップロードできます。")
 
         uploaded_file = None
     else:
@@ -455,10 +486,13 @@ else:
         if uploaded_file:
             st.info(f"📁 **{uploaded_file.name}** ({uploaded_file.size / (1024*1024):.1f} MB)")
 
-    ref_files = st.file_uploader("📄 参考資料（任意）",
-        type=["pdf", "txt", "docx", "pptx", "xlsx", "csv", "md"],
-        accept_multiple_files=True, key="pd_refs",
-        help="会議関連のPDF・スライド等 → 文字起こし精度が向上")
+    if not _use_gcs:
+        ref_files = st.file_uploader("📄 参考資料（任意）",
+            type=["pdf", "txt", "docx", "pptx", "xlsx", "csv", "md"],
+            accept_multiple_files=True, key="pd_refs",
+            help="会議関連のPDF・スライド等 → 文字起こし精度が向上")
+    else:
+        ref_files = []  # GCSモードではアップロードページで処理済み
 
     # 詳細オプション
     with st.expander("🔧 詳細オプション", expanded=False):
@@ -544,6 +578,9 @@ else:
             keywords=paid_keywords, glossary=paid_glossary,
             custom_instructions=paid_instructions,
         )
+        # GCSモードの場合、参考資料のblob_nameも保存
+        if _use_gcs:
+            st.session_state["paid_ref_blobs"] = st.session_state.get("gcs_ref_blobs", [])
         st.session_state["paid_ref_paths"] = ref_paths
 
         with st.spinner("決済ページを準備中..."):

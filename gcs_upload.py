@@ -67,6 +67,16 @@ def download_from_gcs(blob_name: str) -> str:
     return tmp.name
 
 
+def blob_exists(blob_name: str) -> bool:
+    """GCS にファイルが存在するか確認する。"""
+    try:
+        client = storage.Client()
+        bucket = client.bucket(GCS_BUCKET)
+        return bucket.blob(blob_name).exists()
+    except Exception:
+        return False
+
+
 def delete_from_gcs(blob_name: str):
     """GCS のファイルを削除する。"""
     try:

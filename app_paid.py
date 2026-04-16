@@ -423,15 +423,11 @@ else:
     _use_gcs = os.environ.get("GCS_BUCKET", "")
 
     if _use_gcs:
-        # Cloud Run環境: GCSにダイレクトアップロード
-        from gcs_upload import generate_resumable_upload_url, download_from_gcs, delete_from_gcs
+        # Cloud Run環境: GCSにダイレクトアップロード（32MB制限回避）
+        from gcs_upload import generate_resumable_upload_url, download_from_gcs, delete_from_gcs, blob_exists
 
-        if "gcs_blob" not in st.session_state:
-            st.session_state.gcs_blob = None
-            st.session_state.gcs_filename = None
-
-        # アップロードURLを生成（1回だけ）
-        if not st.session_state.get("gcs_upload_url"):
+        # アップロードURL生成（セッション中1回）
+        if "gcs_pending_blob" not in st.session_state:
             try:
                 _origin = st.context.headers.get("Origin", "https://giji-700896522925.asia-northeast1.run.app")
                 _url, _blob = generate_resumable_upload_url("upload.mp4", origin=_origin)
@@ -440,12 +436,12 @@ else:
             except Exception as e:
                 st.error(f"アップロード準備エラー: {e}")
 
-        # アップロードUI表示（未アップロード時）
-        if not st.session_state.get("gcs_blob") and st.session_state.get("gcs_upload_url"):
+        # アップロードUI（常に表示）
+        if st.session_state.get("gcs_upload_url"):
             _upload_url = st.session_state.gcs_upload_url
             st.html(f"""
             <div style="border:2px dashed #ccc;border-radius:12px;padding:25px;text-align:center;font-family:sans-serif;background:#fafafa;">
-                <p style="font-size:16px;margin:0 0 15px;">🎤 音声/動画ファイルを選択してアップロード</p>
+                <p style="font-size:16px;margin:0 0 10px;">🎤 音声/動画ファイルを選択してアップロード</p>
                 <p style="color:#888;font-size:13px;margin:0 0 10px;">対応形式: MP4, M4A, WAV, MP3, WEBM, OGG, FLAC</p>
                 <input type="file" id="gcs-file" accept=".mp4,.m4a,.wav,.mp3,.webm,.ogg,.flac,.mkv,.avi,.mov"
                        style="margin:10px auto;display:block;" />
@@ -458,17 +454,14 @@ else:
                     <p id="gcs-text" style="color:#666;margin-top:8px;font-size:13px;"></p>
                 </div>
                 <div id="gcs-done" style="display:none;margin-top:15px;padding:15px;background:#d4edda;border-radius:8px;">
-                    <p style="color:#155724;font-size:18px;font-weight:bold;margin:0;">
-                        ✅ アップロード完了！</p>
-                    <p style="color:#155724;font-size:14px;margin:5px 0 0;">
-                        下にスクロールして「💳 ¥500」ボタンを押してください</p>
+                    <p style="color:#155724;font-size:18px;font-weight:bold;margin:0;">✅ アップロード完了！</p>
+                    <p style="color:#155724;font-size:14px;margin:5px 0 0;">下にスクロールして「💳」ボタンを押してください</p>
                 </div>
                 <p id="gcs-err" style="display:none;color:#dc3545;margin-top:10px;"></p>
             </div>
             <script>
             document.getElementById('gcs-file').addEventListener('change', function() {{
-                const file = this.files[0];
-                if (!file) return;
+                const file = this.files[0]; if (!file) return;
                 const prog = document.getElementById('gcs-prog');
                 const bar = document.getElementById('gcs-bar');
                 const text = document.getElementById('gcs-text');
@@ -481,8 +474,7 @@ else:
                 xhr.upload.onprogress = function(e) {{
                     if (e.lengthComputable) {{
                         const pct = Math.round(e.loaded / e.total * 100);
-                        bar.style.width = pct + '%';
-                        bar.textContent = pct + '%';
+                        bar.style.width = pct + '%'; bar.textContent = pct + '%';
                         text.textContent = (e.loaded/1024/1024).toFixed(1) + ' MB / ' + (e.total/1024/1024).toFixed(1) + ' MB';
                     }}
                 }};
@@ -490,18 +482,9 @@ else:
                     if (xhr.status >= 200 && xhr.status < 400) {{
                         prog.style.display = 'none';
                         document.getElementById('gcs-done').style.display = 'block';
-                        // Streamlit session_stateを更新するためにURLパラメータを設定してリロード
-                        try {{
-                            const url = new URL(window.parent.location.href);
-                            url.searchParams.set('gcs_done', '1');
-                            url.searchParams.set('gcs_fn', encodeURIComponent(file.name));
-                            window.parent.location.href = url.toString();
-                        }} catch(e) {{
-                            // iframe制限でリダイレクトできない場合は完了メッセージのみ表示
-                        }}
                     }} else {{
                         document.getElementById('gcs-err').style.display = 'block';
-                        document.getElementById('gcs-err').textContent = 'アップロードエラー: HTTP ' + xhr.status;
+                        document.getElementById('gcs-err').textContent = 'エラー: HTTP ' + xhr.status;
                     }}
                 }};
                 xhr.onerror = function() {{
@@ -512,26 +495,6 @@ else:
             }});
             </script>
             """)
-
-            # 💳ボタンは常に表示（GCSアップロード済みかどうかに関わらず）
-            # ユーザーがアップロード完了後に押す
-            st.caption("⬆️ ファイルをアップロードしてから下のボタンを押してください")
-
-        # GCSアップロード完了チェック（URLパラメータ経由）
-        if _get_param("gcs_done"):
-            _fn = _get_param("gcs_fn")
-            if _fn:
-                import urllib.parse
-                _fn = urllib.parse.unquote(_fn)
-            st.session_state.gcs_blob = st.session_state.get("gcs_pending_blob")
-            st.session_state.gcs_filename = _fn or "upload.mp4"
-            st.session_state.gcs_upload_url = None
-            st.query_params.clear()
-            st.rerun()
-
-        # アップロード済み表示
-        if st.session_state.get("gcs_blob"):
-            st.success(f"✅ **{st.session_state.gcs_filename}** — アップロード済み")
 
         uploaded_file = None
     else:
@@ -589,55 +552,60 @@ else:
             except Exception as e:
                 st.error(f"読み込みエラー: {e}")
 
-    # ファイルの準備状態判定
-    _has_file = uploaded_file or st.session_state.get("gcs_blob")
+    # 参考資料を一時保存
+    ref_paths = []
+    for rf in ref_files:
+        ref_id = uuid.uuid4().hex[:8]
+        dest = UPLOAD_DIR / f"ref_{ref_id}{Path(rf.name).suffix}"
+        dest.write_bytes(rf.getbuffer())
+        ref_paths.append(str(dest))
 
-    if _has_file:
-        # ローカルモード: ファイルを一時保存
-        if uploaded_file:
+    # 💳 決済ボタン（常に表示）
+    if st.button(f"💳 ¥{PRICE_JPY:,} で文字起こし・議事録を生成",
+                 type="primary", use_container_width=True):
+
+        # バリデーション
+        if not stripe.api_key or stripe.api_key.startswith("sk_test_ここに"):
+            st.error("Stripe APIキーが設定されていません")
+            st.stop()
+
+        # GCSモード: ファイルがアップロード済みか確認
+        if _use_gcs:
+            from gcs_upload import blob_exists
+            _blob = st.session_state.get("gcs_pending_blob", "")
+            if not _blob or not blob_exists(_blob):
+                st.error("⬆️ まずファイルをアップロードしてください。アップロード完了後に再度ボタンを押してください。")
+                st.stop()
+            st.session_state.file_id = _blob
+            st.session_state.file_name = "meeting_recording.mp4"
+        elif uploaded_file:
             if "file_id" not in st.session_state or st.session_state.get("file_name") != uploaded_file.name:
                 st.session_state.file_id = save_upload(uploaded_file)
                 st.session_state.file_name = uploaded_file.name
-        elif st.session_state.get("gcs_blob"):
-            # GCSモード: blob_nameをfile_idとして使う
-            st.session_state.file_id = st.session_state.gcs_blob
-            st.session_state.file_name = st.session_state.gcs_filename
+        else:
+            st.error("ファイルをアップロードしてください")
+            st.stop()
 
-        # 参考資料を一時保存
-        ref_paths = []
-        for rf in ref_files:
-            ref_id = uuid.uuid4().hex[:8]
-            dest = UPLOAD_DIR / f"ref_{ref_id}{Path(rf.name).suffix}"
-            dest.write_bytes(rf.getbuffer())
-            ref_paths.append(str(dest))
+        # session_stateに全パラメータ保存
+        st.session_state["paid_template_key"] = paid_template_key
+        st.session_state["paid_custom_template"] = paid_custom_template
+        st.session_state["paid_ctx"] = MeetingContext(
+            date=str(meeting_date), time=meeting_time,
+            topic=meeting_topic, participants=meeting_participants,
+            keywords=paid_keywords, glossary=paid_glossary,
+            custom_instructions=paid_instructions,
+        )
+        st.session_state["paid_ref_paths"] = ref_paths
 
-        if st.button(f"💳 ¥{PRICE_JPY:,} で文字起こし・議事録を生成",
-                     type="primary", use_container_width=True):
-            if not stripe.api_key or stripe.api_key.startswith("sk_test_ここに"):
-                st.error("Stripe APIキーが設定されていません")
-                st.stop()
-
-            # session_stateに全パラメータ保存
-            st.session_state["paid_template_key"] = paid_template_key
-            st.session_state["paid_custom_template"] = paid_custom_template
-            st.session_state["paid_ctx"] = MeetingContext(
-                date=str(meeting_date), time=meeting_time,
-                topic=meeting_topic, participants=meeting_participants,
-                keywords=paid_keywords, glossary=paid_glossary,
-                custom_instructions=paid_instructions,
+        with st.spinner("決済ページを準備中..."):
+            checkout_url = create_checkout_session(
+                file_id=st.session_state.file_id,
+                file_name=st.session_state.file_name, lang=lang,
             )
-            st.session_state["paid_ref_paths"] = ref_paths
-            st.session_state["paid_use_gcs"] = bool(_use_gcs)
 
-            with st.spinner("決済ページを準備中..."):
-                checkout_url = create_checkout_session(
-                    file_id=st.session_state.file_id,
-                    file_name=st.session_state.file_name, lang=lang,
-                )
-
-            st.markdown(f'<meta http-equiv="refresh" content="0;url={checkout_url}">', unsafe_allow_html=True)
-            st.info("💳 Stripe決済ページに移動します...")
-            st.link_button("💳 決済ページを開く", checkout_url, use_container_width=True)
+        st.markdown(f'<meta http-equiv="refresh" content="0;url={checkout_url}">', unsafe_allow_html=True)
+        st.info("💳 Stripe決済ページに移動します...")
+        st.link_button("💳 決済ページを開く", checkout_url, use_container_width=True)
 
     st.divider()
     st.caption("Powered by Google Gemini API | 決済: Stripe")

@@ -466,22 +466,18 @@ else:
             st.rerun()
 
         if st.session_state.get("gcs_blob"):
-            st.success(f"✅ **{st.session_state.get('gcs_filename', '')}** — アップロード済み")
+            _fn = st.session_state.get("gcs_filename", "")
             _ref_blobs = st.session_state.get("gcs_ref_blobs", [])
-            if _ref_blobs:
-                st.info(f"📄 参考資料 {len(_ref_blobs)}件 アップロード済み")
-            if st.button("🔄 別のファイルをアップロードし直す", key="gcs_reupload"):
-                # GCS上のファイルを削除
-                try:
-                    from gcs_upload import delete_from_gcs
-                    delete_from_gcs(st.session_state["gcs_blob"])
-                    for rb in st.session_state.get("gcs_ref_blobs", []):
-                        delete_from_gcs(rb)
-                except Exception:
-                    pass
-                for k in ["gcs_blob", "gcs_filename", "gcs_ref_blobs"]:
-                    st.session_state.pop(k, None)
-                st.rerun()
+
+            _col1, _col2 = st.columns([3, 1])
+            with _col1:
+                st.success(f"✅ **{_fn}** — アップロード済み")
+                if _ref_blobs:
+                    st.info(f"📄 参考資料 **{len(_ref_blobs)}件** アップロード済み")
+                else:
+                    st.caption("📄 参考資料: なし")
+            with _col2:
+                st.link_button("🔄 やり直す", "/upload", use_container_width=True)
         else:
             st.link_button(
                 "📤 音声/動画ファイル＆参考資料をアップロード",

@@ -287,6 +287,7 @@ elif param_session_id and param_file_id:
             except Exception as e:
                 st.warning(f"参考資料のダウンロードに失敗: {rb}: {e}")
 
+    _processing_success = False
     try:
         transcript, summary, t_path, s_path, usage = run_pipeline(
             file_path=str(file_path),
@@ -318,40 +319,93 @@ elif param_session_id and param_file_id:
         st.session_state["result_s_path"] = s_path
         st.session_state["result_usage"] = usage
         st.session_state["result_ready"] = True
+        _processing_success = True
 
     except Exception as e:
         progress_bar.empty()
         status_text.empty()
-        st.error(f"処理エラー: {e}")
+        err_msg = str(e)
+        is_api_overload = any(x in err_msg.lower() for x in ["503", "unavailable", "high demand", "overloaded"])
+        if is_api_overload:
+            st.error(
+                "⚠️ **AIサーバーが高負荷のため処理を完了できませんでした。**\n\n"
+                "リトライを12回試みましたが、すべて失敗しました。"
+            )
+            st.info(
+                "📌 **ファイルはGCSに保存されています。** 下の「🔄 処理を再実行する」ボタンで再試行できます。"
+            )
+            # リトライ用パラメータをsession_stateに保存
+            st.session_state["retry_session_id"] = session_id
+            st.session_state["retry_file_id"] = file_id
+            st.session_state["retry_payment"] = payment
+        else:
+            st.error(f"処理エラー: {e}")
+        # デバッグ用に詳細も表示
+        with st.expander("エラー詳細"):
+            import traceback
+            st.code(traceback.format_exc())
 
     finally:
-        # メインファイルのクリーンアップ
-        if file_id.startswith("uploads/"):
-            try:
-                from gcs_upload import delete_from_gcs
-                delete_from_gcs(file_id)
-            except Exception:
-                pass
+        if _processing_success:
+            # 成功時のみGCSを削除
+            if file_id.startswith("uploads/"):
+                try:
+                    from gcs_upload import delete_from_gcs
+                    delete_from_gcs(file_id)
+                except Exception:
+                    pass
+            else:
+                cleanup_upload(file_id)
+            if _gcs_tmp and os.path.exists(_gcs_tmp):
+                try:
+                    os.unlink(_gcs_tmp)
+                except Exception:
+                    pass
+            # 参考資料のクリーンアップ（成功時）
+            for _rt in _ref_gcs_tmps:
+                try:
+                    os.unlink(_rt)
+                except Exception:
+                    pass
+            for rb in ref_blobs:
+                try:
+                    from gcs_upload import delete_from_gcs as _del
+                    _del(rb)
+                except Exception:
+                    pass
         else:
-            cleanup_upload(file_id)
-        if _gcs_tmp and os.path.exists(_gcs_tmp):
-            try:
-                os.unlink(_gcs_tmp)
-            except Exception:
-                pass
-        # 参考資料のクリーンアップ
-        for _rt in _ref_gcs_tmps:
-            try:
-                os.unlink(_rt)
-            except Exception:
-                pass
-        for rb in ref_blobs:
-            try:
-                from gcs_upload import delete_from_gcs as _del
-                _del(rb)
-            except Exception:
-                pass
+            # 失敗時はローカル一時ファイルのみ削除（GCSは保持）
+            if _gcs_tmp and os.path.exists(_gcs_tmp):
+                try:
+                    os.unlink(_gcs_tmp)
+                except Exception:
+                    pass
+            for _rt in _ref_gcs_tmps:
+                try:
+                    os.unlink(_rt)
+                except Exception:
+                    pass
         st.query_params.clear()
+
+# --- リトライ処理 ---
+if (st.session_state.get("retry_session_id")
+        and not st.session_state.get("result_ready")
+        and not (param_session_id and param_file_id)):
+    _retry_session_id = st.session_state["retry_session_id"]
+    _retry_file_id = st.session_state["retry_file_id"]
+    _retry_payment = st.session_state["retry_payment"]
+    st.markdown("---")
+    st.subheader("🔄 処理の再実行")
+    st.write("前回の処理でエラーが発生しました。ファイルは保持されています。")
+    if st.button("🔄 処理を再実行する", type="primary", use_container_width=True):
+        # query_paramsに再セットしてリロード
+        st.query_params["session_id"] = _retry_session_id
+        st.query_params["file_id"] = _retry_file_id
+        # リトライ情報をクリア
+        del st.session_state["retry_session_id"]
+        del st.session_state["retry_file_id"]
+        del st.session_state["retry_payment"]
+        st.rerun()
 
 # ───── 結果表示（処理完了後）─────
 if st.session_state.get("result_ready"):

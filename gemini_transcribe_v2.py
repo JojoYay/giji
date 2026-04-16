@@ -1149,13 +1149,15 @@ def upload_and_wait(client, file_path: str, on_progress=None):
 
 # ───────── Gemini API 呼び出し ─────────
 
-MAX_RETRIES = 5
-RETRY_WAIT = 30  # 秒
+MAX_RETRIES = 12
+RETRY_WAIT_BASE = 60   # 秒（初回待機）
+RETRY_WAIT_MAX = 300   # 最大待機（5分）
 
 
 def _generate_with_retry(client, model, contents, on_progress=None, label=""):
     """503/429 エラー時にリトライする generate_content ラッパー。
     response オブジェクトをそのまま返す（usage_metadata 取得のため）。"""
+    import random
     for attempt in range(1, MAX_RETRIES + 1):
         try:
             response = client.models.generate_content(
@@ -1164,15 +1166,24 @@ def _generate_with_retry(client, model, contents, on_progress=None, label=""):
             return response
         except Exception as e:
             code = getattr(e, "status_code", 0)
+            err_str = str(e).lower()
             is_retryable = (
                 code in (503, 429, 500)
-                or "high demand" in str(e).lower()
-                or "unavailable" in str(e).lower()
+                or "high demand" in err_str
+                or "unavailable" in err_str
+                or "resource exhausted" in err_str
+                or "overloaded" in err_str
             )
             if is_retryable and attempt < MAX_RETRIES:
-                wait = RETRY_WAIT * attempt
+                # 指数バックオフ + ジッター（最大5分）
+                base_wait = min(RETRY_WAIT_BASE * attempt, RETRY_WAIT_MAX)
+                jitter = random.uniform(0, base_wait * 0.2)
+                wait = int(base_wait + jitter)
+                wait_min = wait // 60
+                wait_sec = wait % 60
+                wait_str = f"{wait_min}分{wait_sec:02d}秒" if wait_min else f"{wait_sec}秒"
                 if on_progress:
-                    on_progress("step", f"  {label} サーバー高負荷。{wait}秒後にリトライ ({attempt}/{MAX_RETRIES})...")
+                    on_progress("step", f"  {label} サーバー高負荷。{wait_str}後にリトライ ({attempt}/{MAX_RETRIES})...")
                 time.sleep(wait)
             else:
                 raise

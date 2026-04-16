@@ -4,3 +4,5 @@ python-dotenv
 streamlit
 stripe
 imageio-ffmpeg
+fastapi
+uvicorn

@@ -423,78 +423,29 @@ else:
     _use_gcs = os.environ.get("GCS_BUCKET", "")
 
     if _use_gcs:
-        # Cloud Run環境: GCSにダイレクトアップロード（32MB制限回避）
-        from gcs_upload import generate_resumable_upload_url, download_from_gcs, delete_from_gcs, blob_exists
+        # Cloud Run環境: 専用アップロードページへ誘導
+        # (Cloud Run 32MB制限のため、別ページからGCSに直接アップロード)
 
-        # アップロードURL生成（セッション中1回）
-        if "gcs_pending_blob" not in st.session_state:
-            try:
-                _origin = st.context.headers.get("Origin", "https://giji-700896522925.asia-northeast1.run.app")
-                _url, _blob = generate_resumable_upload_url("upload.mp4", origin=_origin)
-                st.session_state.gcs_upload_url = _url
-                st.session_state.gcs_pending_blob = _blob
-            except Exception as e:
-                st.error(f"アップロード準備エラー: {e}")
+        # アップロード完了後のリダイレクトでblob情報を受け取る
+        _gcs_blob = _get_param("gcs_blob")
+        _gcs_fn = _get_param("gcs_fn")
+        if _gcs_blob:
+            import urllib.parse
+            st.session_state["gcs_blob"] = urllib.parse.unquote(_gcs_blob)
+            st.session_state["gcs_filename"] = urllib.parse.unquote(_gcs_fn) if _gcs_fn else "recording.mp4"
+            # query paramsをクリア（二重処理防止）
+            st.query_params.clear()
+            st.rerun()
 
-        # アップロードUI（常に表示）
-        if st.session_state.get("gcs_upload_url"):
-            _upload_url = st.session_state.gcs_upload_url
-            st.html(f"""
-            <div style="border:2px dashed #ccc;border-radius:12px;padding:25px;text-align:center;font-family:sans-serif;background:#fafafa;">
-                <p style="font-size:16px;margin:0 0 10px;">🎤 音声/動画ファイルを選択してアップロード</p>
-                <p style="color:#888;font-size:13px;margin:0 0 10px;">対応形式: MP4, M4A, WAV, MP3, WEBM, OGG, FLAC</p>
-                <input type="file" id="gcs-file" accept=".mp4,.m4a,.wav,.mp3,.webm,.ogg,.flac,.mkv,.avi,.mov"
-                       style="margin:10px auto;display:block;" />
-                <div id="gcs-prog" style="display:none;margin-top:15px;">
-                    <div style="background:#e0e0e0;border-radius:8px;height:28px;overflow:hidden;">
-                        <div id="gcs-bar" style="background:#ff4b4b;height:100%;width:0%;transition:width 0.3s;
-                             border-radius:8px;color:white;font-size:13px;font-weight:bold;
-                             display:flex;align-items:center;justify-content:center;">0%</div>
-                    </div>
-                    <p id="gcs-text" style="color:#666;margin-top:8px;font-size:13px;"></p>
-                </div>
-                <div id="gcs-done" style="display:none;margin-top:15px;padding:15px;background:#d4edda;border-radius:8px;">
-                    <p style="color:#155724;font-size:18px;font-weight:bold;margin:0;">✅ アップロード完了！</p>
-                    <p style="color:#155724;font-size:14px;margin:5px 0 0;">下にスクロールして「💳」ボタンを押してください</p>
-                </div>
-                <p id="gcs-err" style="display:none;color:#dc3545;margin-top:10px;"></p>
-            </div>
-            <script>
-            document.getElementById('gcs-file').addEventListener('change', function() {{
-                const file = this.files[0]; if (!file) return;
-                const prog = document.getElementById('gcs-prog');
-                const bar = document.getElementById('gcs-bar');
-                const text = document.getElementById('gcs-text');
-                prog.style.display = 'block';
-                document.getElementById('gcs-done').style.display = 'none';
-                document.getElementById('gcs-err').style.display = 'none';
-                const xhr = new XMLHttpRequest();
-                xhr.open('PUT', '{_upload_url}', true);
-                xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
-                xhr.upload.onprogress = function(e) {{
-                    if (e.lengthComputable) {{
-                        const pct = Math.round(e.loaded / e.total * 100);
-                        bar.style.width = pct + '%'; bar.textContent = pct + '%';
-                        text.textContent = (e.loaded/1024/1024).toFixed(1) + ' MB / ' + (e.total/1024/1024).toFixed(1) + ' MB';
-                    }}
-                }};
-                xhr.onload = function() {{
-                    if (xhr.status >= 200 && xhr.status < 400) {{
-                        prog.style.display = 'none';
-                        document.getElementById('gcs-done').style.display = 'block';
-                    }} else {{
-                        document.getElementById('gcs-err').style.display = 'block';
-                        document.getElementById('gcs-err').textContent = 'エラー: HTTP ' + xhr.status;
-                    }}
-                }};
-                xhr.onerror = function() {{
-                    document.getElementById('gcs-err').style.display = 'block';
-                    document.getElementById('gcs-err').textContent = 'ネットワークエラー';
-                }};
-                xhr.send(file);
-            }});
-            </script>
-            """)
+        if st.session_state.get("gcs_blob"):
+            st.success(f"✅ **{st.session_state.get('gcs_filename', '')}** — アップロード済み")
+        else:
+            st.link_button(
+                "📤 音声/動画ファイルをアップロード",
+                "/upload",
+                use_container_width=True,
+            )
+            st.caption("大容量ファイル対応。アップロード完了後、自動でこのページに戻ります。")
 
         uploaded_file = None
     else:
@@ -552,7 +503,7 @@ else:
             except Exception as e:
                 st.error(f"読み込みエラー: {e}")
 
-    # 参考資料を一時保存
+    # 参考資料を一時保存（小さいファイルなのでCloud Runでも直接受信可能）
     ref_paths = []
     for rf in ref_files:
         ref_id = uuid.uuid4().hex[:8]
@@ -560,24 +511,22 @@ else:
         dest.write_bytes(rf.getbuffer())
         ref_paths.append(str(dest))
 
-    # 💳 決済ボタン（常に表示）
+    # 💳 決済ボタン
     if st.button(f"💳 ¥{PRICE_JPY:,} で文字起こし・議事録を生成",
                  type="primary", use_container_width=True):
 
-        # バリデーション
         if not stripe.api_key or stripe.api_key.startswith("sk_test_ここに"):
             st.error("Stripe APIキーが設定されていません")
             st.stop()
 
-        # GCSモード: ファイルがアップロード済みか確認
+        # GCSモード: session_stateにblob_nameがあるか確認
         if _use_gcs:
-            from gcs_upload import blob_exists
-            _blob = st.session_state.get("gcs_pending_blob", "")
-            if not _blob or not blob_exists(_blob):
-                st.error("⬆️ まずファイルをアップロードしてください。アップロード完了後に再度ボタンを押してください。")
+            _blob = st.session_state.get("gcs_blob", "")
+            if not _blob:
+                st.error("⬆️ まず「音声/動画ファイルをアップロード」ボタンからファイルをアップロードしてください。")
                 st.stop()
             st.session_state.file_id = _blob
-            st.session_state.file_name = "meeting_recording.mp4"
+            st.session_state.file_name = st.session_state.get("gcs_filename", "recording.mp4")
         elif uploaded_file:
             if "file_id" not in st.session_state or st.session_state.get("file_name") != uploaded_file.name:
                 st.session_state.file_id = save_upload(uploaded_file)

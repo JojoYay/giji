@@ -31,62 +31,67 @@ UPLOAD_HTML = r"""<!DOCTYPE html>
   .drop input{display:none}
   .btn{background:#ff4b4b;color:#fff;border:none;padding:9px 24px;border-radius:8px;font-size:14px;cursor:pointer;margin-top:8px}
   .btn:hover{background:#e03e3e}
-  .btn-green{background:#28a745}
-  .btn-green:hover{background:#218838}
+  .btn-sm{font-size:12px;padding:5px 14px;margin-top:6px;background:#6c757d}
+  .btn-sm:hover{background:#555}
   .info{margin-top:10px;padding:10px 14px;background:#f0f2f6;border-radius:8px;font-size:13px;display:none}
   .prog{margin-top:12px;display:none}
   .prog-bg{background:#e0e0e0;border-radius:8px;height:28px;overflow:hidden}
   .prog-bar{background:#ff4b4b;height:100%;width:0;transition:width .3s;border-radius:8px;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:bold;font-size:13px}
   .prog-text{color:#666;margin-top:6px;font-size:12px;text-align:center}
-  .done{margin-top:12px;padding:14px;background:#d4edda;border-radius:8px;text-align:center;display:none}
-  .done p{color:#155724;font-size:15px;font-weight:bold}
+  .done{margin-top:12px;padding:14px;background:#d4edda;border-radius:8px;display:none}
+  .done p{color:#155724;font-size:14px}
   .err{color:#dc3545;margin-top:8px;display:none;text-align:center;font-size:13px}
   .ref-list{margin-top:8px;font-size:13px;color:#333}
   .ref-item{padding:4px 0;display:flex;align-items:center;gap:6px}
   .ref-item .check{color:#28a745}
-  .final{margin-top:20px;text-align:center;display:none}
-  .final a{display:inline-block;background:#28a745;color:#fff;padding:12px 32px;border-radius:10px;font-size:16px;text-decoration:none;font-weight:bold}
-  .final a:hover{background:#218838}
+  .next-area{margin-top:28px;text-align:center}
+  .next-btn{display:inline-block;background:#28a745;color:#fff;padding:14px 40px;border-radius:10px;font-size:17px;text-decoration:none;font-weight:bold;border:none;cursor:pointer}
+  .next-btn:hover{background:#218838}
+  .next-btn:disabled{background:#ccc;cursor:not-allowed}
 </style>
 </head>
 <body>
 <div class="container">
   <h1>📝 会議 文字起こし・議事録生成</h1>
-  <p class="sub">ファイルをアップロードしてください。完了後、議事録生成ページに戻ります。</p>
+  <p class="sub">ファイルをアップロードしてください。すべて完了したら「次へ進む」ボタンを押してください。</p>
 
-  <!-- 音声/動画ファイル -->
+  <!-- ===== 音声/動画ファイル ===== -->
   <div class="section">
     <h2>🎤 音声/動画ファイル（必須）</h2>
     <div class="drop" id="mainDrop" onclick="document.getElementById('mainInput').click()">
       <p>ファイルをドラッグ＆ドロップ、または</p>
-      <button class="btn">ファイルを選択</button>
+      <button class="btn" type="button">ファイルを選択</button>
       <input type="file" id="mainInput" accept=".mp4,.m4a,.wav,.mp3,.webm,.ogg,.flac,.mkv,.avi,.mov"/>
       <p style="color:#999;font-size:11px;margin-top:6px">MP4, M4A, WAV, MP3, WEBM, OGG, FLAC</p>
     </div>
     <div class="info" id="mainInfo"></div>
     <div class="prog" id="mainProg"><div class="prog-bg"><div class="prog-bar" id="mainBar">0%</div></div><p class="prog-text" id="mainText"></p></div>
-    <div class="done" id="mainDone"><p>✅ アップロード完了</p></div>
+    <div class="done" id="mainDone">
+      <p>✅ アップロード完了</p>
+      <button class="btn btn-sm" type="button" onclick="resetMain()">🔄 別のファイルに変更</button>
+    </div>
     <p class="err" id="mainErr"></p>
   </div>
 
-  <!-- 参考資料 -->
+  <!-- ===== 参考資料 ===== -->
   <div class="section">
     <h2>📄 参考資料（任意）</h2>
     <p style="color:#888;font-size:12px;margin-bottom:8px">PDF・Word・PowerPoint等。複数選択可。文字起こし精度が向上します。</p>
     <div class="drop" id="refDrop" onclick="document.getElementById('refInput').click()">
       <p>参考資料をドラッグ＆ドロップ、または</p>
-      <button class="btn" style="background:#6c757d">ファイルを選択</button>
+      <button class="btn" type="button" style="background:#6c757d">ファイルを選択</button>
       <input type="file" id="refInput" accept=".pdf,.txt,.docx,.pptx,.xlsx,.csv,.md" multiple/>
     </div>
     <div class="ref-list" id="refList"></div>
     <p class="err" id="refErr"></p>
   </div>
 
-  <!-- 完了 → Streamlitへ -->
-  <div class="final" id="finalArea">
-    <p style="margin-bottom:12px;color:#333">すべてのアップロードが完了しました！</p>
-    <a id="continueLink" href="#">議事録生成ページへ進む →</a>
-    <p style="color:#888;font-size:12px;margin-top:8px">3秒後に自動で移動します</p>
+  <!-- ===== 次へ進むボタン ===== -->
+  <div class="next-area">
+    <button class="next-btn" id="nextBtn" disabled onclick="goNext()">
+      議事録生成ページへ進む →
+    </button>
+    <p id="nextHint" style="color:#999;font-size:12px;margin-top:8px">音声/動画ファイルをアップロードすると有効になります</p>
   </div>
 </div>
 
@@ -151,11 +156,21 @@ async function handleMain(file) {
     mainFilename = file.name;
     prog.style.display = 'none';
     done.style.display = 'block';
-    checkAllDone();
+    updateNextBtn();
   } catch(e) {
     err.textContent = e.message; err.style.display = 'block';
     mainDrop.style.display = 'block'; prog.style.display = 'none';
   }
+}
+
+function resetMain() {
+  mainBlob = null;
+  mainFilename = null;
+  document.getElementById('mainDrop').style.display = 'block';
+  document.getElementById('mainDone').style.display = 'none';
+  document.getElementById('mainInfo').style.display = 'none';
+  document.getElementById('mainInput').value = '';
+  updateNextBtn();
 }
 
 // --- 参考資料 ---
@@ -164,44 +179,47 @@ const refInput = document.getElementById('refInput');
 refDrop.addEventListener('dragover', e => { e.preventDefault(); refDrop.classList.add('over'); });
 refDrop.addEventListener('dragleave', () => refDrop.classList.remove('over'));
 refDrop.addEventListener('drop', e => { e.preventDefault(); refDrop.classList.remove('over'); handleRefs(e.dataTransfer.files); });
-refInput.addEventListener('change', () => handleRefs(refInput.files));
+refInput.addEventListener('change', () => { handleRefs(refInput.files); refInput.value = ''; });
 
 async function handleRefs(files) {
   const list = document.getElementById('refList');
-  const err = document.getElementById('refErr');
-  err.style.display = 'none';
-
   for (const file of files) {
     const item = document.createElement('div');
     item.className = 'ref-item';
-    item.innerHTML = '⏳ ' + file.name + ' (' + (file.size/1024/1024).toFixed(1) + ' MB) アップロード中...';
+    item.innerHTML = '⏳ ' + file.name + ' アップロード中...';
     list.appendChild(item);
-
     try {
       const blob = await uploadFile(file, () => {});
       refBlobs.push(blob);
-      item.innerHTML = '<span class="check">✅</span> ' + file.name + ' — 完了';
+      item.innerHTML = '<span class="check">✅</span> ' + file.name;
     } catch(e) {
       item.innerHTML = '❌ ' + file.name + ' — ' + e.message;
     }
   }
-  checkAllDone();
 }
 
-// --- 完了チェック ---
-function checkAllDone() {
-  if (!mainBlob) return;
-  const final = document.getElementById('finalArea');
-  const link = document.getElementById('continueLink');
+// --- 次へ進むボタン ---
+function updateNextBtn() {
+  const btn = document.getElementById('nextBtn');
+  const hint = document.getElementById('nextHint');
+  if (mainBlob) {
+    btn.disabled = false;
+    hint.textContent = '準備完了！ボタンを押して議事録生成ページへ進みます。';
+    hint.style.color = '#28a745';
+  } else {
+    btn.disabled = true;
+    hint.textContent = '音声/動画ファイルをアップロードすると有効になります';
+    hint.style.color = '#999';
+  }
+}
 
-  // StreamlitへのリダイレクトURL構築
+function goNext() {
+  if (!mainBlob) return;
   let url = window.location.origin + '/?gcs_blob=' + encodeURIComponent(mainBlob) + '&gcs_fn=' + encodeURIComponent(mainFilename);
   if (refBlobs.length > 0) {
     url += '&gcs_refs=' + encodeURIComponent(refBlobs.join(','));
   }
-  link.href = url;
-  final.style.display = 'block';
-  setTimeout(() => { window.location.href = url; }, 3000);
+  window.location.href = url;
 }
 </script>
 </body>

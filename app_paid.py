@@ -470,6 +470,18 @@ else:
             _ref_blobs = st.session_state.get("gcs_ref_blobs", [])
             if _ref_blobs:
                 st.info(f"📄 参考資料 {len(_ref_blobs)}件 アップロード済み")
+            if st.button("🔄 別のファイルをアップロードし直す", key="gcs_reupload"):
+                # GCS上のファイルを削除
+                try:
+                    from gcs_upload import delete_from_gcs
+                    delete_from_gcs(st.session_state["gcs_blob"])
+                    for rb in st.session_state.get("gcs_ref_blobs", []):
+                        delete_from_gcs(rb)
+                except Exception:
+                    pass
+                for k in ["gcs_blob", "gcs_filename", "gcs_ref_blobs"]:
+                    st.session_state.pop(k, None)
+                st.rerun()
         else:
             st.link_button(
                 "📤 音声/動画ファイル＆参考資料をアップロード",

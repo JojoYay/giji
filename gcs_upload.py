@@ -85,3 +85,26 @@ def delete_from_gcs(blob_name: str):
         bucket.blob(blob_name).delete()
     except Exception:
         pass
+
+
+def upload_result_to_gcs(local_path: str, blob_name: str) -> str:
+    """ローカルファイルを GCS にアップロードし、blob_name を返す。"""
+    client = storage.Client()
+    bucket = client.bucket(GCS_BUCKET)
+    blob = bucket.blob(blob_name)
+    blob.upload_from_filename(local_path)
+    return blob_name
+
+
+def get_signed_url(blob_name: str, expiration_minutes: int = 60) -> str:
+    """GCS blob の署名付きダウンロード URL を生成する（有効期限60分）。"""
+    import datetime
+    client = storage.Client()
+    bucket = client.bucket(GCS_BUCKET)
+    blob = bucket.blob(blob_name)
+    url = blob.generate_signed_url(
+        expiration=datetime.timedelta(minutes=expiration_minutes),
+        method="GET",
+        version="v4",
+    )
+    return url

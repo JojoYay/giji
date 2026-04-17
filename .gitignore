@@ -34,3 +34,8 @@ Thumbs.db
 
 # Temp
 *.tmp
+
+# Next.js frontend
+frontend/node_modules/
+frontend/.next/
+frontend/.env.local

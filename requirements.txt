@@ -1,8 +1,9 @@
 google-genai
 google-cloud-storage
+google-cloud-firestore
 python-dotenv
-streamlit
 stripe
 imageio-ffmpeg
 fastapi
 uvicorn
+requests

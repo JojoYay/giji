@@ -580,15 +580,17 @@ else:
     # ─────────────────────────────────────────────
     st.subheader("② 📅 会議情報の入力")
 
+    # st.date_input は key経由で session_state を直接読む。
+    # URLパラメータ復元時に文字列になっている場合、ウィジェット呼び出し前に修正する。
+    if isinstance(st.session_state.get("pd_date"), str):
+        try:
+            st.session_state["pd_date"] = _dt.date.fromisoformat(st.session_state["pd_date"])
+        except Exception:
+            st.session_state["pd_date"] = _dt.date.today()
+
     col_date, col_time = st.columns(2)
     with col_date:
-        _date_default = st.session_state.get("pd_date", _dt.date.today())
-        if isinstance(_date_default, str):
-            try:
-                _date_default = _dt.date.fromisoformat(_date_default)
-            except Exception:
-                _date_default = _dt.date.today()
-        meeting_date = st.date_input("日付", value=_date_default, key="pd_date")
+        meeting_date = st.date_input("日付", value=_dt.date.today(), key="pd_date")
     with col_time:
         meeting_time = st.text_input("時刻", placeholder="例: 10:00-12:00", key="pd_time")
 

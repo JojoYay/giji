@@ -48,9 +48,16 @@ try:
     if isinstance(_state_param, list):
         _state_param = _state_param[0] if _state_param else None
     if _state_param and not st.session_state.get("_form_restored"):
+        import datetime as _restore_dt
         _decoded = json.loads(base64.urlsafe_b64decode(_state_param.encode()).decode())
         for k, v in _decoded.items():
             if k not in st.session_state:
+                # pd_date は ISO文字列 → datetime.date に変換
+                if k == "pd_date" and isinstance(v, str):
+                    try:
+                        v = _restore_dt.date.fromisoformat(v)
+                    except Exception:
+                        v = _restore_dt.date.today()
                 st.session_state[k] = v
         st.session_state["_form_restored"] = True
 except Exception:
@@ -489,18 +496,99 @@ if st.session_state.get("result_ready"):
 else:
     import datetime as _dt
 
+    _use_gcs = os.environ.get("GCS_BUCKET", "")
+
+    # ─────────────────────────────────────────────
+    # ① GCSアップロード完了パラメータの受け取り
+    # ─────────────────────────────────────────────
+    if _use_gcs:
+        _gcs_blob = _get_param("gcs_blob")
+        _gcs_fn = _get_param("gcs_fn")
+        _gcs_refs = _get_param("gcs_refs")
+        if _gcs_blob:
+            import urllib.parse
+            st.session_state["gcs_blob"] = urllib.parse.unquote(_gcs_blob)
+            st.session_state["gcs_filename"] = urllib.parse.unquote(_gcs_fn) if _gcs_fn else "recording.mp4"
+            if _gcs_refs:
+                st.session_state["gcs_ref_blobs"] = [b.strip() for b in urllib.parse.unquote(_gcs_refs).split(",") if b.strip()]
+            for _k in ("gcs_blob", "gcs_fn", "gcs_refs"):
+                if _k in st.query_params:
+                    del st.query_params[_k]
+            st.rerun()
+
+    # ─────────────────────────────────────────────
+    # STEP 1: ファイルアップロード（最初に表示）
+    # ─────────────────────────────────────────────
     st.markdown(f"""
     ### 使い方
-    1. 会議情報を入力 → 音声/動画ファイルをアップロード
-    2. 💳 **¥{PRICE_JPY:,}** でお支払い（クレジットカード）
-    3. 高精度な文字起こし＋議事録が生成されます
+    1. **音声/動画ファイルをアップロード**
+    2. 会議情報を入力
+    3. 💳 **¥{PRICE_JPY:,}** でお支払い → 文字起こし＋議事録が生成されます
     """)
 
-    # 会議情報
-    st.subheader("📅 会議情報")
+    st.subheader("① 📁 ファイルのアップロード")
+
+    if _use_gcs:
+        # フォーム状態をエンコード（アップロードページ往復後に復元するため）
+        _form_state = _encode_form_state()
+        _upload_link = f"/upload?state={_form_state}" if _form_state else "/upload"
+
+        if st.session_state.get("gcs_blob"):
+            _fn = st.session_state.get("gcs_filename", "")
+            _ref_blobs = st.session_state.get("gcs_ref_blobs", [])
+            _col1, _col2 = st.columns([3, 1])
+            with _col1:
+                st.success(f"✅ **{_fn}** — アップロード済み")
+                if _ref_blobs:
+                    st.info(f"📄 参考資料 **{len(_ref_blobs)}件** アップロード済み")
+                else:
+                    st.caption("📄 参考資料: なし（任意）")
+            with _col2:
+                st.link_button("🔄 やり直す", _upload_link, use_container_width=True)
+            _file_uploaded = True
+        else:
+            st.link_button(
+                "📤 音声/動画ファイル＆参考資料をアップロード →",
+                _upload_link,
+                use_container_width=True,
+                type="primary",
+            )
+            st.caption("大容量ファイル対応（MP4・M4A・WAV・MP3等）。参考資料（PDF等）も同時にアップロードできます。")
+            st.divider()
+            st.caption("Powered by Google Gemini API | 決済: Stripe")
+            st.stop()  # アップロード完了まで以降の画面を表示しない
+
+        uploaded_file = None
+        ref_files = []
+
+    else:
+        # ローカル環境: 通常のStreamlitアップローダー
+        uploaded_file = st.file_uploader("🎤 音声/動画ファイル（必須）",
+            type=["mp4", "m4a", "wav", "mp3", "webm", "ogg", "flac"], key="pd_audio")
+        if uploaded_file:
+            st.success(f"✅ **{uploaded_file.name}** ({uploaded_file.size / (1024*1024):.1f} MB)")
+        ref_files = st.file_uploader("📄 参考資料（任意）",
+            type=["pdf", "txt", "docx", "pptx", "xlsx", "csv", "md"],
+            accept_multiple_files=True, key="pd_refs",
+            help="会議関連のPDF・スライド等 → 文字起こし精度が向上")
+        _file_uploaded = bool(uploaded_file)
+
+    st.divider()
+
+    # ─────────────────────────────────────────────
+    # STEP 2: 会議情報の入力（アップロード完了後に表示）
+    # ─────────────────────────────────────────────
+    st.subheader("② 📅 会議情報の入力")
+
     col_date, col_time = st.columns(2)
     with col_date:
-        meeting_date = st.date_input("日付", value=_dt.date.today(), key="pd_date")
+        _date_default = st.session_state.get("pd_date", _dt.date.today())
+        if isinstance(_date_default, str):
+            try:
+                _date_default = _dt.date.fromisoformat(_date_default)
+            except Exception:
+                _date_default = _dt.date.today()
+        meeting_date = st.date_input("日付", value=_date_default, key="pd_date")
     with col_time:
         meeting_time = st.text_input("時刻", placeholder="例: 10:00-12:00", key="pd_time")
 
@@ -514,7 +602,7 @@ else:
                         format_func=lambda k: SUPPORTED_LANGUAGES[k], index=0, key="pd_lang")
 
     # テンプレート選択
-    st.subheader("📑 議事録テンプレート")
+    st.subheader("③ 📑 議事録テンプレート")
     _tpl_keys = list(SUMMARY_TEMPLATES.keys())
     _tpl_names = [SUMMARY_TEMPLATES[k]["name"].get(lang, SUMMARY_TEMPLATES[k]["name"]["ja"]) for k in _tpl_keys]
     _tpl_descs = [SUMMARY_TEMPLATES[k]["description"].get(lang, SUMMARY_TEMPLATES[k]["description"]["ja"]) for k in _tpl_keys]
@@ -534,71 +622,6 @@ else:
                 paid_custom_template = _ed_tpl
                 st.info("カスタムテンプレートとして使用します。")
 
-    # ファイル — GCSダイレクトアップロード対応
-    st.subheader("📁 ファイル")
-    _use_gcs = os.environ.get("GCS_BUCKET", "")
-
-    if _use_gcs:
-        # Cloud Run環境: 専用アップロードページへ誘導
-        # (Cloud Run 32MB制限のため、別ページからGCSに直接アップロード)
-
-        # アップロード完了後のリダイレクトでblob情報を受け取る
-        _gcs_blob = _get_param("gcs_blob")
-        _gcs_fn = _get_param("gcs_fn")
-        _gcs_refs = _get_param("gcs_refs")
-        if _gcs_blob:
-            import urllib.parse
-            st.session_state["gcs_blob"] = urllib.parse.unquote(_gcs_blob)
-            st.session_state["gcs_filename"] = urllib.parse.unquote(_gcs_fn) if _gcs_fn else "recording.mp4"
-            if _gcs_refs:
-                st.session_state["gcs_ref_blobs"] = [b.strip() for b in urllib.parse.unquote(_gcs_refs).split(",") if b.strip()]
-            # GCS関連のパラメータのみ削除し、state は残す（rerunでそのまま保持される）
-            for _k in ("gcs_blob", "gcs_fn", "gcs_refs"):
-                if _k in st.query_params:
-                    del st.query_params[_k]
-            st.rerun()
-
-        # フォーム状態をエンコードしてアップロードページに渡す（戻り時に復元）
-        _form_state = _encode_form_state()
-        _upload_link = f"/upload?state={_form_state}" if _form_state else "/upload"
-
-        if st.session_state.get("gcs_blob"):
-            _fn = st.session_state.get("gcs_filename", "")
-            _ref_blobs = st.session_state.get("gcs_ref_blobs", [])
-
-            _col1, _col2 = st.columns([3, 1])
-            with _col1:
-                st.success(f"✅ **{_fn}** — アップロード済み")
-                if _ref_blobs:
-                    st.info(f"📄 参考資料 **{len(_ref_blobs)}件** アップロード済み")
-                else:
-                    st.caption("📄 参考資料: なし")
-            with _col2:
-                st.link_button("🔄 やり直す", _upload_link, use_container_width=True)
-        else:
-            st.link_button(
-                "📤 音声/動画ファイル＆参考資料をアップロード",
-                _upload_link,
-                use_container_width=True,
-            )
-            st.caption("大容量ファイル対応。音声ファイルと参考資料をまとめてアップロードできます。")
-
-        uploaded_file = None
-    else:
-        # ローカル環境: 通常のStreamlitアップローダー
-        uploaded_file = st.file_uploader("🎤 音声/動画ファイル",
-            type=["mp4", "m4a", "wav", "mp3", "webm", "ogg", "flac"], key="pd_audio")
-        if uploaded_file:
-            st.info(f"📁 **{uploaded_file.name}** ({uploaded_file.size / (1024*1024):.1f} MB)")
-
-    if not _use_gcs:
-        ref_files = st.file_uploader("📄 参考資料（任意）",
-            type=["pdf", "txt", "docx", "pptx", "xlsx", "csv", "md"],
-            accept_multiple_files=True, key="pd_refs",
-            help="会議関連のPDF・スライド等 → 文字起こし精度が向上")
-    else:
-        ref_files = []  # GCSモードではアップロードページで処理済み
-
     # 詳細オプション
     with st.expander("🔧 詳細オプション", expanded=False):
         st.markdown("##### 🏷️ 重要キーワード")
@@ -613,7 +636,7 @@ else:
         paid_instructions = st.text_area("追加の要約指示",
             placeholder="例: ですます調 / アクションプラン詳細 / 箇条書き",
             height=100, label_visibility="collapsed", key="pd_ci")
-        if ref_files or paid_glossary:
+        if (not _use_gcs and ref_files) or paid_glossary:
             st.info("📌 参考資料/用語辞書 → **2パス校正が自動有効化**されます")
 
     # 設定エクスポート/インポート
@@ -642,7 +665,7 @@ else:
             except Exception as e:
                 st.error(f"読み込みエラー: {e}")
 
-    # 参考資料を一時保存（小さいファイルなのでCloud Runでも直接受信可能）
+    # 参考資料を一時保存（ローカルモード用）
     ref_paths = []
     for rf in ref_files:
         ref_id = uuid.uuid4().hex[:8]
@@ -650,7 +673,10 @@ else:
         dest.write_bytes(rf.getbuffer())
         ref_paths.append(str(dest))
 
+    # ─────────────────────────────────────────────
     # 💳 決済ボタン
+    # ─────────────────────────────────────────────
+    st.divider()
     if st.button(f"💳 ¥{PRICE_JPY:,} で文字起こし・議事録を生成",
                  type="primary", use_container_width=True):
 
@@ -662,7 +688,7 @@ else:
         if _use_gcs:
             _blob = st.session_state.get("gcs_blob", "")
             if not _blob:
-                st.error("⬆️ まず「音声/動画ファイルをアップロード」ボタンからファイルをアップロードしてください。")
+                st.error("⬆️ まず「ファイルのアップロード」からファイルをアップロードしてください。")
                 st.stop()
             st.session_state.file_id = _blob
             st.session_state.file_name = st.session_state.get("gcs_filename", "recording.mp4")

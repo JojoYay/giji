@@ -1,8 +1,9 @@
-name: Deploy to Cloud Run
+# このワークフローはStreamlit版で使用していました。
+# Next.js + FastAPI移行後は deploy-api.yml を使用してください。
+name: Deploy to Cloud Run (旧Streamlit版・無効)
 
 on:
-  push:
-    branches: [master]
+  workflow_dispatch:  # 手動実行のみ（自動デプロイ無効）
 
 env:
   PROJECT_ID: geminipoc-486608

@@ -1,6 +1,7 @@
 name: Deploy API to Cloud Run
 
 on:
+  workflow_dispatch:
   push:
     branches: [master]
     paths:
@@ -8,6 +9,7 @@ on:
       - "gemini_transcribe_v2.py"
       - "gcs_upload.py"
       - "requirements.txt"
+      - "Dockerfile"
       - "Dockerfile.api"
       - ".github/workflows/deploy-api.yml"
 

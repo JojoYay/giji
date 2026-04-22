@@ -35,6 +35,13 @@ jobs:
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
 
+      - name: Apply GCS CORS policy
+        run: |
+          cat > /tmp/cors.json << 'EOF'
+          [{"origin":["https://giji-minutes.web.app","http://localhost:3000"],"method":["GET","POST","PUT","DELETE","OPTIONS"],"responseHeader":["Content-Type","Content-Length","Content-Range","Range","X-GUploader-UploadID","X-Upload-Content-Type","Location","ETag"],"maxAgeSeconds":3600}]
+          EOF
+          gcloud storage buckets update gs://giji-uploads-geminipoc --cors-file=/tmp/cors.json
+
       - name: Deploy to Cloud Run
         run: |
           gcloud run deploy ${{ env.SERVICE }} \

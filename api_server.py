@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import stripe
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from google.cloud import firestore
@@ -59,13 +59,14 @@ def _get_db() -> firestore.Client:
 # ───────── /api/upload-url ─────────
 
 @app.post("/api/upload-url")
-async def create_upload_url(body: dict):
+async def create_upload_url(body: dict, request: Request):
     """ブラウザから GCS に直接アップロードするための Resumable Upload URL を返す。"""
     try:
         from gcs_upload import generate_resumable_upload_url
         filename = body.get("filename", "upload.mp4")
         content_type = body.get("content_type", "application/octet-stream")
-        origin = os.environ.get("APP_ORIGIN", "https://giji-700896522925.asia-northeast1.run.app")
+        # リクエストの Origin ヘッダーを使う（どのフロントエンドからでも動作）
+        origin = request.headers.get("origin") or os.environ.get("APP_ORIGIN", "https://giji-minutes.web.app")
         url, blob_name = generate_resumable_upload_url(filename, content_type, origin)
         return {"upload_url": url, "blob_name": blob_name}
     except Exception as e:

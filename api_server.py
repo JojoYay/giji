@@ -52,7 +52,8 @@ _db: firestore.Client | None = None
 def _get_db() -> firestore.Client:
     global _db
     if _db is None:
-        _db = firestore.Client()
+        project = os.environ.get("GCP_PROJECT") or os.environ.get("GOOGLE_CLOUD_PROJECT") or "giji-minutes"
+        _db = firestore.Client(project=project, database="(default)")
     return _db
 
 

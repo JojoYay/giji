@@ -49,4 +49,4 @@ jobs:
             --concurrency=10 \
             --port=8000 \
             --set-secrets="GEMINI_API_KEY=GEMINI_API_KEY:latest,STRIPE_SECRET_KEY=STRIPE_SECRET_KEY:latest" \
-            --set-env-vars="STRIPE_PRICE_JPY=500,GCS_BUCKET=giji-uploads-geminipoc,ALLOWED_ORIGINS=https://giji-frontend.vercel.app"
+            --set-env-vars="STRIPE_PRICE_JPY=500,GCS_BUCKET=giji-uploads-geminipoc,ALLOWED_ORIGINS=https://giji-minutes.web.app"

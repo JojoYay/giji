@@ -12,9 +12,10 @@ on:
       - ".github/workflows/deploy-api.yml"
 
 env:
-  PROJECT_ID: geminipoc-486608
+  PROJECT_ID: giji-minutes
   REGION: asia-northeast1
   SERVICE: giji-api
+  BUCKET: giji-uploads-minutes
 
 jobs:
   deploy:
@@ -40,7 +41,7 @@ jobs:
           cat > /tmp/cors.json << 'EOF'
           [{"origin":["https://giji-minutes.web.app","http://localhost:3000"],"method":["GET","POST","PUT","DELETE","OPTIONS"],"responseHeader":["Content-Type","Content-Length","Content-Range","Range","X-GUploader-UploadID","X-Upload-Content-Type","Location","ETag"],"maxAgeSeconds":3600}]
           EOF
-          gcloud storage buckets update gs://giji-uploads-geminipoc --cors-file=/tmp/cors.json
+          gcloud storage buckets update gs://${{ env.BUCKET }} --cors-file=/tmp/cors.json --project=${{ env.PROJECT_ID }}
 
       - name: Deploy to Cloud Run
         run: |
@@ -56,4 +57,4 @@ jobs:
             --concurrency=10 \
             --port=8000 \
             --set-secrets="GEMINI_API_KEY=GEMINI_API_KEY:latest,STRIPE_SECRET_KEY=STRIPE_SECRET_KEY:latest" \
-            --set-env-vars="STRIPE_PRICE_JPY=500,GCS_BUCKET=giji-uploads-geminipoc,ALLOWED_ORIGINS=https://giji-minutes.web.app"
+            --set-env-vars="STRIPE_PRICE_JPY=500,GCS_BUCKET=${{ env.BUCKET }},ALLOWED_ORIGINS=https://giji-minutes.web.app"

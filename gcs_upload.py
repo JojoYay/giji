@@ -13,7 +13,7 @@ from google.cloud import storage
 from google.auth.transport.requests import Request as AuthRequest
 import google.auth
 
-GCS_BUCKET = os.environ.get("GCS_BUCKET", "giji-uploads-geminipoc")
+GCS_BUCKET = os.environ.get("GCS_BUCKET", "giji-uploads-minutes")
 
 
 def _get_credentials():

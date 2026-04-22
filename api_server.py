@@ -22,7 +22,7 @@ from google.cloud import firestore
 # ───────── 設定 ─────────
 stripe.api_key = os.environ.get("STRIPE_SECRET_KEY", "")
 PRICE_JPY = int(os.environ.get("STRIPE_PRICE_JPY", "500"))
-GCS_BUCKET = os.environ.get("GCS_BUCKET", "giji-uploads-geminipoc")
+GCS_BUCKET = os.environ.get("GCS_BUCKET", "giji-uploads-minutes")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 MODEL = "gemini-2.5-flash"
 

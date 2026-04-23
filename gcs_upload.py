@@ -97,8 +97,28 @@ def upload_result_to_gcs(local_path: str, blob_name: str) -> str:
 
 
 def get_signed_url(blob_name: str, expiration_minutes: int = 60) -> str:
-    """GCS blob の署名付きダウンロード URL を生成する（有効期限60分）。"""
+    """GCS blob の署名付きダウンロード URL を生成する（有効期限60分）。
+
+    Cloud Run の Compute SA は秘密鍵を持たないため、IAM signBlob API 経由で
+    署名する（service_account_email + access_token を渡す）。
+    """
     import datetime
+    credentials, _ = google.auth.default()
+    credentials.refresh(AuthRequest())
+
+    service_account_email = getattr(credentials, "service_account_email", None)
+    # メタデータサーバー経由の場合 service_account_email は "default" 文字列に
+    # なることがあるので、その時は metadata から取得する
+    if not service_account_email or service_account_email == "default":
+        try:
+            md = _requests.get(
+                "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/email",
+                headers={"Metadata-Flavor": "Google"}, timeout=2,
+            )
+            service_account_email = md.text.strip()
+        except Exception:
+            pass
+
     client = storage.Client()
     bucket = client.bucket(GCS_BUCKET)
     blob = bucket.blob(blob_name)
@@ -106,5 +126,7 @@ def get_signed_url(blob_name: str, expiration_minutes: int = 60) -> str:
         expiration=datetime.timedelta(minutes=expiration_minutes),
         method="GET",
         version="v4",
+        service_account_email=service_account_email,
+        access_token=credentials.token,
     )
     return url

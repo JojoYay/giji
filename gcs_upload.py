@@ -92,23 +92,39 @@ def upload_result_to_gcs(local_path: str, blob_name: str) -> str:
     client = storage.Client()
     bucket = client.bucket(GCS_BUCKET)
     blob = bucket.blob(blob_name)
-    blob.upload_from_filename(local_path)
+    ext = Path(blob_name).suffix.lower()
+    content_type = {
+        ".txt": "text/plain; charset=utf-8",
+        ".md": "text/markdown; charset=utf-8",
+    }.get(ext)
+    if content_type:
+        blob.upload_from_filename(local_path, content_type=content_type)
+    else:
+        blob.upload_from_filename(local_path)
     return blob_name
 
 
-def get_signed_url(blob_name: str, expiration_minutes: int = 60) -> str:
+def get_signed_url(
+    blob_name: str,
+    expiration_minutes: int = 60,
+    download_filename: str | None = None,
+    content_type: str | None = None,
+) -> str:
     """GCS blob の署名付きダウンロード URL を生成する（有効期限60分）。
 
     Cloud Run の Compute SA は秘密鍵を持たないため、IAM signBlob API 経由で
     署名する（service_account_email + access_token を渡す）。
+
+    download_filename を指定すると Content-Disposition: attachment でダウンロード
+    される。content_type は charset=utf-8 付きで強制設定する。
     """
     import datetime
+    from urllib.parse import quote
+
     credentials, _ = google.auth.default()
     credentials.refresh(AuthRequest())
 
     service_account_email = getattr(credentials, "service_account_email", None)
-    # メタデータサーバー経由の場合 service_account_email は "default" 文字列に
-    # なることがあるので、その時は metadata から取得する
     if not service_account_email or service_account_email == "default":
         try:
             md = _requests.get(
@@ -119,14 +135,32 @@ def get_signed_url(blob_name: str, expiration_minutes: int = 60) -> str:
         except Exception:
             pass
 
+    response_type = content_type
+    if response_type and "charset" not in response_type.lower():
+        response_type = f"{response_type}; charset=utf-8"
+
+    response_disposition = None
+    if download_filename:
+        # RFC 5987 形式で非 ASCII ファイル名に対応
+        encoded = quote(download_filename, safe="")
+        response_disposition = (
+            f"attachment; filename=\"{download_filename}\"; "
+            f"filename*=UTF-8''{encoded}"
+        )
+
     client = storage.Client()
     bucket = client.bucket(GCS_BUCKET)
     blob = bucket.blob(blob_name)
-    url = blob.generate_signed_url(
+    kwargs: dict = dict(
         expiration=datetime.timedelta(minutes=expiration_minutes),
         method="GET",
         version="v4",
         service_account_email=service_account_email,
         access_token=credentials.token,
     )
-    return url
+    if response_type:
+        kwargs["response_type"] = response_type
+    if response_disposition:
+        kwargs["response_disposition"] = response_disposition
+
+    return blob.generate_signed_url(**kwargs)

@@ -215,10 +215,19 @@ async def get_job(job_id: str):
     minutes_url = None
     if job["status"] == "done":
         from gcs_upload import get_signed_url
+        file_stem = Path(job.get("file_name", "recording")).stem
         if job.get("transcript_blob"):
-            transcript_url = get_signed_url(job["transcript_blob"])
+            transcript_url = get_signed_url(
+                job["transcript_blob"],
+                download_filename=f"{file_stem}_transcript.txt",
+                content_type="text/plain; charset=utf-8",
+            )
         if job.get("minutes_blob"):
-            minutes_url = get_signed_url(job["minutes_blob"])
+            minutes_url = get_signed_url(
+                job["minutes_blob"],
+                download_filename=f"{file_stem}_minutes.md",
+                content_type="text/markdown; charset=utf-8",
+            )
 
     return {
         "job_id": job_id,

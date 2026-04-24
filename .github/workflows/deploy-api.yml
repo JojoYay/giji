@@ -10,7 +10,6 @@ on:
       - "gcs_upload.py"
       - "requirements.txt"
       - "Dockerfile"
-      - "Dockerfile.api"
       - ".github/workflows/deploy-api.yml"
 
 env:
@@ -41,7 +40,7 @@ jobs:
       - name: Apply GCS CORS policy
         run: |
           cat > /tmp/cors.json << 'EOF'
-          [{"origin":["https://giji-minutes.web.app","http://localhost:3000"],"method":["GET","POST","PUT","DELETE","OPTIONS"],"responseHeader":["Content-Type","Content-Length","Content-Range","Range","X-GUploader-UploadID","X-Upload-Content-Type","Location","ETag"],"maxAgeSeconds":3600}]
+          [{"origin":["https://giji-minutes.web.app","https://minutes.jittee.com","http://localhost:3000"],"method":["GET","POST","PUT","DELETE","OPTIONS"],"responseHeader":["Content-Type","Content-Length","Content-Range","Range","X-GUploader-UploadID","X-Upload-Content-Type","Location","ETag"],"maxAgeSeconds":3600}]
           EOF
           gcloud storage buckets update gs://${{ env.BUCKET }} --cors-file=/tmp/cors.json --project=${{ env.PROJECT_ID }}
 
@@ -59,4 +58,4 @@ jobs:
             --concurrency=10 \
             --port=8000 \
             --set-secrets="GEMINI_API_KEY=GEMINI_API_KEY:latest,STRIPE_SECRET_KEY=STRIPE_SECRET_KEY:latest" \
-            --set-env-vars="STRIPE_PRICE_JPY=500,GCS_BUCKET=${{ env.BUCKET }},ALLOWED_ORIGINS=https://giji-minutes.web.app"
+            --set-env-vars="STRIPE_PRICE_JPY=500,GCS_BUCKET=${{ env.BUCKET }},ALLOWED_ORIGINS=https://giji-minutes.web.app,https://minutes.jittee.com"

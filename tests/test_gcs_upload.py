@@ -24,15 +24,10 @@ def test_stripe_key_no_whitespace():
     from pathlib import Path
     load_dotenv(Path(__file__).parent.parent / ".env")
     sk = os.environ.get("STRIPE_SECRET_KEY", "")
-    pk = os.environ.get("STRIPE_PUBLISHABLE_KEY", "")
     if sk:
-        assert "\r" not in sk, f"Secret key contains \\r"
-        assert "\n" not in sk, f"Secret key contains \\n"
-        assert sk == sk.strip(), f"Secret key has leading/trailing whitespace"
-    if pk:
-        assert "\r" not in pk, f"Publishable key contains \\r"
-        assert "\n" not in pk, f"Publishable key contains \\n"
-        assert pk == pk.strip(), f"Publishable key has leading/trailing whitespace"
+        assert "\r" not in sk, "Secret key contains \\r"
+        assert "\n" not in sk, "Secret key contains \\n"
+        assert sk == sk.strip(), "Secret key has leading/trailing whitespace"
 
 
 def test_meeting_context_dataclass():

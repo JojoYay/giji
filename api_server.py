@@ -19,6 +19,49 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from google.cloud import firestore
 
+# Firebase Admin (遅延初期化)
+_firebase_initialized = False
+
+
+def _ensure_firebase():
+    global _firebase_initialized
+    if _firebase_initialized:
+        return
+    try:
+        import firebase_admin
+        from firebase_admin import credentials
+        if not firebase_admin._apps:
+            # Cloud Run の Compute SA を使う（ADC）
+            firebase_admin.initialize_app()
+        _firebase_initialized = True
+    except Exception as e:
+        print(f"[firebase] init failed: {e}")
+
+
+def _verify_id_token(request: Request) -> str | None:
+    """Authorization: Bearer <id_token> から uid を返す。未ログイン時は None。"""
+    auth = request.headers.get("authorization") or request.headers.get("Authorization")
+    if not auth or not auth.lower().startswith("bearer "):
+        return None
+    token = auth.split(" ", 1)[1].strip()
+    if not token:
+        return None
+    try:
+        _ensure_firebase()
+        from firebase_admin import auth as fb_auth
+        decoded = fb_auth.verify_id_token(token)
+        return decoded.get("uid")
+    except Exception as e:
+        print(f"[auth] token verify failed: {e}")
+        return None
+
+
+def _require_uid(request: Request) -> str:
+    uid = _verify_id_token(request)
+    if not uid:
+        raise HTTPException(401, "Authentication required")
+    return uid
+
 # ───────── 設定 ─────────
 stripe.api_key = os.environ.get("STRIPE_SECRET_KEY", "")
 PRICE_JPY = int(os.environ.get("STRIPE_PRICE_JPY", "500"))
@@ -78,41 +121,71 @@ async def create_upload_url(body: dict, request: Request):
 # ───────── /api/checkout ─────────
 
 @app.post("/api/checkout")
-async def create_checkout(body: dict):
+async def create_checkout(body: dict, request: Request):
     """
     Stripe Checkout セッションを作成し、Firestore にジョブを仮登録する。
+    既存のドラフト（draft_id）があれば pending_payment に昇格させる。
     Returns: { checkout_url, job_id }
     """
     if not stripe.api_key:
         raise HTTPException(500, "Stripe API key not configured")
 
-    job_id = uuid.uuid4().hex
+    uid = _verify_id_token(request)  # 任意（未ログインOK）
     gcs_blob = body.get("gcs_blob", "")
     gcs_refs = body.get("gcs_refs", [])
     meeting_context = body.get("meeting_context", {})
     file_name = body.get("file_name", "recording.mp4")
     frontend_origin = body.get("frontend_origin", "http://localhost:3000")
+    draft_id = body.get("draft_id") or None
 
     if not gcs_blob:
         raise HTTPException(400, "gcs_blob is required")
 
-    # Firestore に仮登録（status: pending_payment）
     db = _get_db()
-    db.collection("jobs").document(job_id).set({
-        "status": "pending_payment",
-        "job_id": job_id,
-        "gcs_blob": gcs_blob,
-        "gcs_refs": gcs_refs,
-        "meeting_context": meeting_context,
-        "file_name": file_name,
-        "progress": [],
-        "created_at": datetime.now(timezone.utc),
-        "started_at": None,
-        "completed_at": None,
-        "error_message": None,
-        "transcript_blob": None,
-        "minutes_blob": None,
-    })
+
+    # ドラフト昇格 or 新規作成
+    if draft_id:
+        doc_ref = db.collection("jobs").document(draft_id)
+        snap = doc_ref.get()
+        if not snap.exists:
+            raise HTTPException(404, "Draft not found")
+        existing = snap.to_dict()
+        if existing.get("user_id") and existing.get("user_id") != uid:
+            raise HTTPException(403, "Not your draft")
+        if existing.get("purchased"):
+            # 既購入ジョブからの再生成 → 別ジョブとして扱う
+            draft_id = None
+
+    if draft_id:
+        job_id = draft_id
+        doc_ref.update({
+            "status": "pending_payment",
+            "gcs_blob": gcs_blob,
+            "gcs_refs": gcs_refs,
+            "meeting_context": meeting_context,
+            "file_name": file_name,
+            "updated_at": datetime.now(timezone.utc),
+        })
+    else:
+        job_id = uuid.uuid4().hex
+        db.collection("jobs").document(job_id).set({
+            "status": "pending_payment",
+            "job_id": job_id,
+            "user_id": uid,
+            "purchased": False,
+            "gcs_blob": gcs_blob,
+            "gcs_refs": gcs_refs,
+            "meeting_context": meeting_context,
+            "file_name": file_name,
+            "progress": [],
+            "created_at": datetime.now(timezone.utc),
+            "updated_at": datetime.now(timezone.utc),
+            "started_at": None,
+            "completed_at": None,
+            "error_message": None,
+            "transcript_blob": None,
+            "minutes_blob": None,
+        })
 
     # Stripe Checkout セッション作成
     success_url = f"{frontend_origin}/success?job_id={job_id}&session_id={{CHECKOUT_SESSION_ID}}"
@@ -171,9 +244,10 @@ async def start_job(job_id: str, body: dict):
     except stripe.StripeError as e:
         raise HTTPException(400, f"Stripe error: {e}")
 
-    # Firestore を processing に更新
+    # Firestore を processing に更新（決済完了 → purchased=true）
     doc_ref.update({
         "status": "processing",
+        "purchased": True,
         "stripe_session_id": session_id,
         "started_at": datetime.now(timezone.utc),
         "error_message": None,
@@ -193,7 +267,7 @@ async def start_job(job_id: str, body: dict):
 # ───────── /api/jobs/{id} ─────────
 
 @app.get("/api/jobs/{job_id}")
-async def get_job(job_id: str):
+async def get_job(job_id: str, request: Request):
     """ジョブ状態をポーリングする。"""
     db = _get_db()
     doc = db.collection("jobs").document(job_id).get()
@@ -201,6 +275,12 @@ async def get_job(job_id: str):
         raise HTTPException(404, "Job not found")
 
     job = doc.to_dict()
+    # user_id が設定されている場合は ID token 必須
+    owner = job.get("user_id")
+    if owner:
+        uid = _verify_id_token(request)
+        if uid != owner:
+            raise HTTPException(403, "Not your job")
 
     # タイムスタンプを文字列化
     def _fmt(ts):
@@ -363,6 +443,109 @@ def _run_job(job_id: str, job: dict):
                     delete_from_gcs(rb)
             except Exception:
                 pass
+
+
+# ───────── ドラフト (auto-save) ─────────
+
+@app.post("/api/drafts")
+async def upsert_draft(body: dict, request: Request):
+    """
+    ログインユーザーのドラフトを保存/更新する。
+    body: { draft_id?, gcs_blob?, gcs_refs?, meeting_context?, file_name? }
+    Returns: { draft_id }
+    """
+    uid = _require_uid(request)
+    db = _get_db()
+
+    draft_id = body.get("draft_id") or None
+    payload_fields = ["gcs_blob", "gcs_refs", "meeting_context", "file_name"]
+    update_data: dict = {k: body[k] for k in payload_fields if k in body}
+    update_data["updated_at"] = datetime.now(timezone.utc)
+
+    if draft_id:
+        doc_ref = db.collection("jobs").document(draft_id)
+        snap = doc_ref.get()
+        if snap.exists:
+            existing = snap.to_dict()
+            if existing.get("user_id") != uid:
+                raise HTTPException(403, "Not your draft")
+            if existing.get("purchased"):
+                # 購入済みジョブは編集不可 → 新規ドラフトを作る
+                draft_id = None
+            else:
+                doc_ref.update(update_data)
+                return {"draft_id": draft_id}
+
+    # 新規作成
+    draft_id = uuid.uuid4().hex
+    db.collection("jobs").document(draft_id).set({
+        "status": "draft",
+        "job_id": draft_id,
+        "user_id": uid,
+        "purchased": False,
+        "gcs_blob": update_data.get("gcs_blob", ""),
+        "gcs_refs": update_data.get("gcs_refs", []),
+        "meeting_context": update_data.get("meeting_context", {}),
+        "file_name": update_data.get("file_name", ""),
+        "progress": [],
+        "created_at": datetime.now(timezone.utc),
+        "updated_at": datetime.now(timezone.utc),
+        "started_at": None,
+        "completed_at": None,
+        "error_message": None,
+        "transcript_blob": None,
+        "minutes_blob": None,
+    })
+    return {"draft_id": draft_id}
+
+
+@app.get("/api/jobs")
+async def list_jobs(request: Request):
+    """ログインユーザーの全ジョブを返す（新しい順）。"""
+    uid = _require_uid(request)
+    db = _get_db()
+    q = db.collection("jobs").where("user_id", "==", uid)
+    docs = list(q.stream())
+
+    def _fmt(ts):
+        if ts is None:
+            return None
+        if hasattr(ts, "isoformat"):
+            return ts.isoformat()
+        return str(ts)
+
+    items = []
+    for d in docs:
+        j = d.to_dict()
+        items.append({
+            "job_id": j.get("job_id", d.id),
+            "status": j.get("status"),
+            "purchased": bool(j.get("purchased", False)),
+            "file_name": j.get("file_name", ""),
+            "meeting_context": j.get("meeting_context", {}),
+            "created_at": _fmt(j.get("created_at")),
+            "updated_at": _fmt(j.get("updated_at")),
+            "completed_at": _fmt(j.get("completed_at")),
+            "error_message": j.get("error_message"),
+        })
+    # 更新日時降順
+    items.sort(key=lambda x: x.get("updated_at") or x.get("created_at") or "", reverse=True)
+    return {"jobs": items}
+
+
+@app.delete("/api/jobs/{job_id}")
+async def delete_job(job_id: str, request: Request):
+    uid = _require_uid(request)
+    db = _get_db()
+    doc_ref = db.collection("jobs").document(job_id)
+    snap = doc_ref.get()
+    if not snap.exists:
+        raise HTTPException(404, "Job not found")
+    j = snap.to_dict()
+    if j.get("user_id") != uid:
+        raise HTTPException(403, "Not your job")
+    doc_ref.delete()
+    return {"deleted": True}
 
 
 # ───────── ヘルスチェック ─────────

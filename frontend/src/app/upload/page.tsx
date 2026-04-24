@@ -1,10 +1,12 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import { FileDropZone } from "@/components/FileDropZone";
 import { saveUploadState, saveFormState, loadUploadState, loadFormState, DEFAULT_FORM } from "@/lib/store";
-import { createCheckout } from "@/lib/api";
+import { createCheckout, upsertDraft, getJob } from "@/lib/api";
 import type { MeetingContext } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 
 const LANGUAGES = [
   { value: "ja", label: "日本語" },
@@ -25,6 +27,18 @@ const TEMPLATES = [
 const PRICE_JPY = parseInt(process.env.NEXT_PUBLIC_PRICE_JPY ?? "500", 10);
 
 export default function UploadPage() {
+  return (
+    <Suspense fallback={<div className="p-8 text-center text-gray-500">...</div>}>
+      <UploadInner />
+    </Suspense>
+  );
+}
+
+function UploadInner() {
+  const { user } = useAuth();
+  const params = useSearchParams();
+  const resumeId = params.get("draft") || params.get("resume") || null;
+
   const [mainBlob, setMainBlob] = useState<string | null>(null);
   const [mainName, setMainName] = useState<string | null>(null);
   const [mainSize, setMainSize] = useState<number>(0);
@@ -33,19 +47,64 @@ export default function UploadPage() {
   const [form, setForm] = useState<MeetingContext>(DEFAULT_FORM);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [draftId, setDraftId] = useState<string | null>(null);
+  const [hydrated, setHydrated] = useState(false);
 
-  // 前回の状態を復元
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // 初回ハイドレーション
   useEffect(() => {
-    const up = loadUploadState();
-    if (up) {
-      setMainBlob(up.gcs_blob);
-      setMainName(up.file_name);
-      setMainSize(up.file_size);
-      setRefBlobs(up.gcs_refs);
-      setRefNames(up.ref_names);
-    }
-    setForm(loadFormState());
-  }, []);
+    (async () => {
+      // 履歴から再開？
+      if (resumeId && user) {
+        try {
+          const j = await getJob(resumeId);
+          setMainBlob(null); // 購入済みの再生成などの場合、ファイル再アップロードが必要なので何もしない
+          setForm({ ...DEFAULT_FORM, ...(j as unknown as { meeting_context?: MeetingContext }).meeting_context });
+          setDraftId(resumeId);
+          setHydrated(true);
+          return;
+        } catch {
+          // fall through
+        }
+      }
+      const up = loadUploadState();
+      if (up) {
+        setMainBlob(up.gcs_blob);
+        setMainName(up.file_name);
+        setMainSize(up.file_size);
+        setRefBlobs(up.gcs_refs);
+        setRefNames(up.ref_names);
+      }
+      setForm(loadFormState());
+      setHydrated(true);
+    })();
+  }, [resumeId, user]);
+
+  // ログインユーザー用：変更を debounce して Firestore に保存
+  useEffect(() => {
+    if (!hydrated || !user) return;
+    if (!mainBlob) return; // ファイル未アップロード時は保存しない
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(async () => {
+      try {
+        const { draft_id } = await upsertDraft({
+          draft_id: draftId,
+          gcs_blob: mainBlob,
+          gcs_refs: refBlobs,
+          meeting_context: form,
+          file_name: mainName ?? "",
+        });
+        if (draft_id !== draftId) setDraftId(draft_id);
+      } catch (e) {
+        console.warn("[draft] save failed", e);
+      }
+    }, 800);
+    return () => {
+      if (saveTimer.current) clearTimeout(saveTimer.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, hydrated, mainBlob, mainName, refBlobs, form]);
 
   const set = (key: keyof MeetingContext, value: string) =>
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -79,6 +138,7 @@ export default function UploadPage() {
         gcs_refs: refBlobs,
         meeting_context: form,
         file_name: mainName,
+        draft_id: draftId,
       });
       window.location.href = checkout_url;
     } catch (e: unknown) {
@@ -93,6 +153,11 @@ export default function UploadPage() {
         <div className="text-center mb-8">
           <h1 className="text-3xl font-bold">📝 会議 文字起こし・議事録生成</h1>
           <p className="text-gray-500 mt-1">音声/動画ファイルから議事録を自動生成します</p>
+          {!user && (
+            <p className="text-xs text-gray-400 mt-2">
+              💡 <a href="/login" className="underline">ログイン</a>すると履歴が保存されます（任意）
+            </p>
+          )}
         </div>
 
         {/* ① ファイルアップロード */}

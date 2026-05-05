@@ -10,245 +10,286 @@ export default function LandingPage() {
   const ctaHref = "/upload";
 
   return (
-    <main className="bg-white text-gray-800">
+    <main className="bg-white text-neutral-900">
       {/* ──────── Hero ──────── */}
-      <section className="relative overflow-hidden bg-gradient-to-br from-red-50 via-white to-orange-50">
-        <div className="max-w-6xl mx-auto px-6 py-20 md:py-28 grid md:grid-cols-2 gap-10 items-center">
-          <div>
-            <span className="inline-block bg-red-100 text-red-700 text-xs font-semibold px-3 py-1 rounded-full mb-4">
-              AI 議事録生成サービス
-            </span>
-            <h1 className="text-4xl md:text-5xl font-extrabold leading-tight mb-5">
-              会議の録音を、<br />
-              <span className="text-red-500">そのまま議事録に。</span>
-            </h1>
-            <p className="text-lg text-gray-600 mb-8 leading-relaxed">
-              音声・動画ファイルをアップロードするだけで、AI が文字起こしと議事録を自動生成。
-              <br />
-              手作業の議事録づくりから解放されます。
+      <section className="border-b border-neutral-200">
+        <div className="max-w-6xl mx-auto px-6 pt-24 pb-20 md:pt-32 md:pb-28">
+          <div className="max-w-3xl">
+            <p className="text-sm text-neutral-500 mb-6 tracking-wide">
+              AI Meeting Minutes
             </p>
-            <div className="flex flex-col sm:flex-row gap-3">
+            <h1 className="text-5xl md:text-7xl font-semibold tracking-tight leading-[1.05] mb-8">
+              会議の録音を、
+              <br />
+              そのまま議事録に。
+            </h1>
+            <p className="text-lg md:text-xl text-neutral-600 leading-relaxed max-w-2xl mb-10">
+              音声・動画ファイルをアップロードするだけ。
+              文字起こしから議事録の構造化まで、自動で完了します。
+              手作業の議事録づくりから、解放される。
+            </p>
+            <div className="flex flex-wrap items-center gap-4">
               <Link
                 href={ctaHref}
-                className="inline-block bg-red-500 hover:bg-red-600 text-white font-bold px-8 py-4 rounded-2xl shadow-md text-center transition-colors"
+                className="inline-flex items-center gap-2 bg-neutral-900 hover:bg-neutral-800 text-white font-medium px-6 py-3 rounded-full transition-colors"
               >
-                🚀 今すぐ試す
+                はじめる
+                <span aria-hidden>→</span>
               </Link>
               {!user && (
                 <Link
                   href="/login"
-                  className="inline-block bg-white border border-gray-300 hover:bg-gray-50 text-gray-800 font-medium px-8 py-4 rounded-2xl text-center transition-colors"
+                  className="inline-flex items-center gap-2 text-neutral-900 hover:text-neutral-600 font-medium px-2 py-3 transition-colors"
                 >
-                  ログイン / 新規登録
+                  ログイン
                 </Link>
               )}
             </div>
-            <p className="text-xs text-gray-500 mt-4">
-              ✅ 登録なしでも使えます ・ ✅ 1 件 ¥{PRICE_JPY.toLocaleString()} ・ ✅ 多言語対応
+            <p className="text-sm text-neutral-500 mt-8">
+              1 件 ¥{PRICE_JPY.toLocaleString()}・登録不要・サブスクリプションなし
             </p>
           </div>
+        </div>
 
-          {/* モックアップ */}
-          <div className="relative">
-            <div className="bg-white rounded-2xl shadow-xl border border-gray-200 p-6">
-              <div className="flex gap-1.5 mb-4">
-                <span className="w-3 h-3 rounded-full bg-red-400"></span>
-                <span className="w-3 h-3 rounded-full bg-yellow-400"></span>
-                <span className="w-3 h-3 rounded-full bg-green-400"></span>
-              </div>
-              <div className="space-y-3">
-                <div className="bg-green-50 border border-green-200 rounded-lg p-3 flex items-center gap-2">
-                  <span>✅</span>
-                  <span className="text-sm">2026-04-24_定例会議.mp4</span>
+        {/* Mock preview — minimal */}
+        <div className="max-w-6xl mx-auto px-6 pb-20">
+          <div className="border border-neutral-200 rounded-2xl overflow-hidden bg-neutral-50">
+            <div className="px-6 py-3 border-b border-neutral-200 bg-white flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-neutral-300" />
+              <span className="w-2.5 h-2.5 rounded-full bg-neutral-300" />
+              <span className="w-2.5 h-2.5 rounded-full bg-neutral-300" />
+              <span className="ml-3 text-xs text-neutral-500 font-mono">
+                2026-05-05_strategy.mp4 — 議事録
+              </span>
+            </div>
+            <div className="grid md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-neutral-200">
+              <div className="p-8">
+                <p className="text-xs uppercase tracking-widest text-neutral-400 mb-4">
+                  Transcript
+                </p>
+                <div className="space-y-3 text-sm text-neutral-700 leading-relaxed font-mono">
+                  <p>
+                    <span className="text-neutral-400">10:02</span>{" "}
+                    山田: 今日の議題は二つ、Q2 のレビューと新機能のリリース計画です。
+                  </p>
+                  <p>
+                    <span className="text-neutral-400">10:04</span>{" "}
+                    吉田: Q2 は前年比 18% 増で着地見込み。詳細は資料の 3 ページ目を…
+                  </p>
+                  <p>
+                    <span className="text-neutral-400">10:08</span>{" "}
+                    渡辺: 営業資料の更新は 5/15 までに反映してほしい。
+                  </p>
                 </div>
-                <div className="bg-gray-50 rounded-lg p-3 text-sm space-y-1">
-                  <div className="text-gray-400 text-xs">▼ 議事録（AI 生成）</div>
-                  <div className="font-bold">📋 アジェンダ</div>
-                  <div className="text-gray-600 ml-3">・Q2 売上レビュー</div>
-                  <div className="text-gray-600 ml-3">・新機能リリース計画</div>
-                  <div className="font-bold mt-2">✅ 決定事項</div>
-                  <div className="text-gray-600 ml-3">・5/15 までに営業資料更新</div>
-                  <div className="font-bold mt-2">🎯 アクションプラン</div>
-                  <div className="text-gray-600 ml-3">・山田: 顧客分析（〜5/10）</div>
+              </div>
+              <div className="p-8">
+                <p className="text-xs uppercase tracking-widest text-neutral-400 mb-4">
+                  Minutes
+                </p>
+                <div className="space-y-4 text-sm leading-relaxed">
+                  <div>
+                    <h4 className="font-semibold mb-1">アジェンダ</h4>
+                    <ul className="text-neutral-600 space-y-0.5 list-disc list-inside">
+                      <li>Q2 売上レビュー</li>
+                      <li>新機能リリース計画</li>
+                    </ul>
+                  </div>
+                  <div>
+                    <h4 className="font-semibold mb-1">決定事項</h4>
+                    <ul className="text-neutral-600 space-y-0.5 list-disc list-inside">
+                      <li>5/15 までに営業資料を更新</li>
+                    </ul>
+                  </div>
+                  <div>
+                    <h4 className="font-semibold mb-1">アクション</h4>
+                    <ul className="text-neutral-600 space-y-0.5 list-disc list-inside">
+                      <li>山田 — 顧客分析（〜5/10）</li>
+                      <li>吉田 — レビュー資料配布（〜5/8）</li>
+                    </ul>
+                  </div>
                 </div>
               </div>
             </div>
-            <div className="absolute -z-10 -top-6 -right-6 w-32 h-32 bg-red-200 rounded-full blur-3xl opacity-60"></div>
-            <div className="absolute -z-10 -bottom-8 -left-8 w-40 h-40 bg-orange-200 rounded-full blur-3xl opacity-60"></div>
           </div>
         </div>
       </section>
 
-      {/* ──────── 課題提起 ──────── */}
-      <section className="py-20 bg-gray-50">
-        <div className="max-w-5xl mx-auto px-6 text-center">
-          <h2 className="text-3xl md:text-4xl font-bold mb-4">
-            こんな悩み、ありませんか？
-          </h2>
-          <p className="text-gray-500 mb-12">議事録は会議より時間がかかる、なんて本末転倒。</p>
-          <div className="grid md:grid-cols-3 gap-6">
-            {[
-              { icon: "⏰", title: "議事録に時間がかかる", desc: "1 時間の会議で、議事録作成に 1〜2 時間かかってしまう。" },
-              { icon: "📝", title: "聞き直しが面倒", desc: "重要な発言を聞き逃すと、録音を何度も巻き戻す手間が発生。" },
-              { icon: "🌐", title: "多言語の会議に対応できない", desc: "海外メンバーとの会議で、議事録作成の負担が倍増。" },
-            ].map((item) => (
-              <div key={item.title} className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
-                <div className="text-4xl mb-3">{item.icon}</div>
-                <h3 className="font-bold mb-2">{item.title}</h3>
-                <p className="text-sm text-gray-600">{item.desc}</p>
+      {/* ──────── Why now ──────── */}
+      <section className="border-b border-neutral-200">
+        <div className="max-w-6xl mx-auto px-6 py-24 md:py-32">
+          <div className="grid md:grid-cols-12 gap-10">
+            <div className="md:col-span-5">
+              <p className="text-sm text-neutral-500 mb-4 tracking-wide">Why</p>
+              <h2 className="text-3xl md:text-4xl font-semibold tracking-tight leading-tight">
+                議事録に、
+                <br />
+                時間を奪われない。
+              </h2>
+            </div>
+            <div className="md:col-span-7 space-y-8 text-neutral-700">
+              <p className="text-lg leading-relaxed">
+                1 時間の会議に対して、議事録づくりに 1〜2 時間かけているチームは少なくありません。
+                聞き直し、整形、共有 — そのすべてを AI に任せる時代です。
+              </p>
+              <div className="grid sm:grid-cols-3 gap-8 pt-4 border-t border-neutral-200">
+                <div>
+                  <p className="text-3xl font-semibold tracking-tight mb-1">最短 5 分</p>
+                  <p className="text-sm text-neutral-500">音声から議事録まで</p>
+                </div>
+                <div>
+                  <p className="text-3xl font-semibold tracking-tight mb-1">4 言語</p>
+                  <p className="text-sm text-neutral-500">日・英・中・マレー</p>
+                </div>
+                <div>
+                  <p className="text-3xl font-semibold tracking-tight mb-1">¥{PRICE_JPY}</p>
+                  <p className="text-sm text-neutral-500">1 件あたり</p>
+                </div>
               </div>
-            ))}
+            </div>
           </div>
         </div>
       </section>
 
-      {/* ──────── 機能 ──────── */}
-      <section className="py-20">
-        <div className="max-w-6xl mx-auto px-6">
-          <div className="text-center mb-14">
-            <span className="text-red-500 font-semibold text-sm uppercase tracking-wide">Features</span>
-            <h2 className="text-3xl md:text-4xl font-bold mt-2 mb-3">
-              本サービスの特徴
+      {/* ──────── Features ──────── */}
+      <section className="border-b border-neutral-200">
+        <div className="max-w-6xl mx-auto px-6 py-24 md:py-32">
+          <div className="mb-16">
+            <p className="text-sm text-neutral-500 mb-4 tracking-wide">Features</p>
+            <h2 className="text-3xl md:text-4xl font-semibold tracking-tight max-w-2xl">
+              シンプルでありながら、必要な機能を。
             </h2>
-            <p className="text-gray-500">最新の Google Gemini AI が、議事録づくりを劇的に効率化します。</p>
           </div>
 
-          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 border-t border-l border-neutral-200">
             {[
               {
-                icon: "🎙️",
-                title: "高精度な自動文字起こし",
-                desc: "音声・動画ファイルをアップロードするだけ。話者の発言を高精度に文字化します。",
+                t: "高精度な文字起こし",
+                d: "Google Gemini の最新モデルが、話者の発言を高精度で文字化します。",
               },
               {
-                icon: "🤖",
-                title: "AI による議事録自動生成",
-                desc: "アジェンダ・決定事項・アクションプランを構造化して整理。すぐに共有可能な形式で出力。",
+                t: "構造化された議事録",
+                d: "アジェンダ・決定事項・アクションを整理。すぐに共有できる形で出力。",
               },
               {
-                icon: "🌐",
-                title: "多言語対応",
-                desc: "日本語・英語・中国語・マレー語に対応。グローバル会議の議事録もスマートに。",
+                t: "多言語対応",
+                d: "日本語・英語・中国語・マレー語で出力可能。グローバルな会議にも。",
               },
               {
-                icon: "📑",
-                title: "5 種類のテンプレート",
-                desc: "標準・アクション重視・エグゼクティブ向け・詳細版・1on1。用途に合わせて選択。",
+                t: "5 種類のテンプレート",
+                d: "標準・アクション重視・エグゼクティブ向け・詳細版・1on1。",
               },
               {
-                icon: "📚",
-                title: "参考資料で精度向上",
-                desc: "会議資料 (PDF/Word/PowerPoint) を一緒にアップすると、専門用語の認識精度が向上。",
+                t: "参考資料による精度向上",
+                d: "PDF・Word・PowerPoint を一緒にアップロードすると専門用語の認識が向上。",
               },
               {
-                icon: "🔒",
-                title: "セキュアなインフラ",
-                desc: "Google Cloud 上で処理・保存。決済は Stripe、認証は Firebase Authentication。",
+                t: "Google Cloud で稼働",
+                d: "決済は Stripe、認証は Firebase Authentication。安心して利用可能。",
               },
             ].map((f) => (
               <div
-                key={f.title}
-                className="bg-white border border-gray-100 rounded-2xl p-6 hover:shadow-md transition-shadow"
+                key={f.t}
+                className="border-r border-b border-neutral-200 p-8"
               >
-                <div className="text-4xl mb-3">{f.icon}</div>
-                <h3 className="font-bold text-lg mb-2">{f.title}</h3>
-                <p className="text-sm text-gray-600 leading-relaxed">{f.desc}</p>
+                <h3 className="font-semibold mb-2">{f.t}</h3>
+                <p className="text-sm text-neutral-600 leading-relaxed">{f.d}</p>
               </div>
             ))}
           </div>
         </div>
       </section>
 
-      {/* ──────── 使い方 ──────── */}
-      <section className="py-20 bg-gradient-to-b from-gray-50 to-white">
-        <div className="max-w-5xl mx-auto px-6">
-          <div className="text-center mb-14">
-            <span className="text-red-500 font-semibold text-sm uppercase tracking-wide">How it works</span>
-            <h2 className="text-3xl md:text-4xl font-bold mt-2 mb-3">
-              たった 3 ステップ
+      {/* ──────── How it works ──────── */}
+      <section className="border-b border-neutral-200">
+        <div className="max-w-6xl mx-auto px-6 py-24 md:py-32">
+          <div className="mb-16">
+            <p className="text-sm text-neutral-500 mb-4 tracking-wide">How it works</p>
+            <h2 className="text-3xl md:text-4xl font-semibold tracking-tight max-w-2xl">
+              3 ステップで完了。
             </h2>
-            <p className="text-gray-500">録音から議事録まで、最短 5 分。</p>
           </div>
 
-          <div className="space-y-6">
+          <div className="grid md:grid-cols-3 gap-px bg-neutral-200">
             {[
               {
-                step: "1",
-                title: "ファイルをアップロード",
-                desc: "MP4・M4A・MP3・WAV など、主要な音声・動画形式に対応。最大数 GB まで対応。",
+                n: "01",
+                t: "アップロード",
+                d: "MP4・M4A・MP3・WAV など、主要な音声・動画形式に対応。複数ファイルも可。",
               },
               {
-                step: "2",
-                title: "会議情報を入力（任意）",
-                desc: "テーマ・参加者・キーワード・専門用語辞書を入力すると、議事録の精度がさらに向上します。",
+                n: "02",
+                t: "情報入力（任意）",
+                d: "テーマ・参加者・キーワード・専門用語辞書を入力すると、精度が向上します。",
               },
               {
-                step: "3",
-                title: "AI が議事録を生成 → ダウンロード",
-                desc: "数分〜十数分で文字起こしと議事録 (Markdown) が完成。テキストファイルでダウンロード可能。",
+                n: "03",
+                t: "ダウンロード",
+                d: "数分〜十数分で文字起こしと議事録が完成。テキスト / Markdown 形式で取得。",
               },
             ].map((s) => (
-              <div
-                key={s.step}
-                className="bg-white rounded-2xl border border-gray-100 p-6 flex items-start gap-5 shadow-sm"
-              >
-                <div className="bg-red-500 text-white font-bold text-2xl w-12 h-12 rounded-xl flex items-center justify-center shrink-0">
-                  {s.step}
-                </div>
-                <div>
-                  <h3 className="font-bold text-lg mb-1">{s.title}</h3>
-                  <p className="text-sm text-gray-600">{s.desc}</p>
-                </div>
+              <div key={s.n} className="bg-white p-10">
+                <p className="text-sm font-mono text-neutral-400 mb-6">{s.n}</p>
+                <h3 className="text-xl font-semibold mb-3">{s.t}</h3>
+                <p className="text-sm text-neutral-600 leading-relaxed">{s.d}</p>
               </div>
             ))}
           </div>
         </div>
       </section>
 
-      {/* ──────── 利用シーン ──────── */}
-      <section className="py-20">
-        <div className="max-w-6xl mx-auto px-6">
-          <div className="text-center mb-14">
-            <span className="text-red-500 font-semibold text-sm uppercase tracking-wide">Use cases</span>
-            <h2 className="text-3xl md:text-4xl font-bold mt-2 mb-3">こんな場面で活躍</h2>
-          </div>
-          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4">
-            {[
-              { icon: "💼", t: "社内定例会議" },
-              { icon: "🤝", t: "顧客との打ち合わせ" },
-              { icon: "🎤", t: "セミナー・講演" },
-              { icon: "🎓", t: "研修・勉強会" },
-              { icon: "👥", t: "1on1 ミーティング" },
-              { icon: "📞", t: "オンライン会議" },
-              { icon: "🌍", t: "海外チームとの会議" },
-              { icon: "📺", t: "インタビュー収録" },
-            ].map((u) => (
-              <div
-                key={u.t}
-                className="bg-white border border-gray-100 rounded-xl p-5 text-center hover:border-red-200 transition-colors"
-              >
-                <div className="text-3xl mb-1">{u.icon}</div>
-                <div className="text-sm font-medium">{u.t}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ──────── 料金 ──────── */}
-      <section className="py-20 bg-gradient-to-br from-red-50 to-orange-50">
-        <div className="max-w-3xl mx-auto px-6 text-center">
-          <span className="text-red-500 font-semibold text-sm uppercase tracking-wide">Pricing</span>
-          <h2 className="text-3xl md:text-4xl font-bold mt-2 mb-3">シンプルな料金体系</h2>
-          <p className="text-gray-500 mb-10">使った分だけ。サブスク不要。</p>
-
-          <div className="bg-white rounded-3xl shadow-lg border border-gray-100 p-10">
-            <div className="text-sm text-gray-500 mb-2">1 会議あたり</div>
-            <div className="flex items-baseline justify-center gap-1 mb-6">
-              <span className="text-5xl font-extrabold text-gray-900">¥{PRICE_JPY.toLocaleString()}</span>
-              <span className="text-gray-500">/ 件</span>
+      {/* ──────── Use cases ──────── */}
+      <section className="border-b border-neutral-200">
+        <div className="max-w-6xl mx-auto px-6 py-24 md:py-32">
+          <div className="grid md:grid-cols-12 gap-10">
+            <div className="md:col-span-5">
+              <p className="text-sm text-neutral-500 mb-4 tracking-wide">Use cases</p>
+              <h2 className="text-3xl md:text-4xl font-semibold tracking-tight leading-tight">
+                あらゆる会議に。
+              </h2>
             </div>
-            <ul className="text-left space-y-3 mb-8 max-w-xs mx-auto">
+            <div className="md:col-span-7">
+              <ul className="divide-y divide-neutral-200 border-y border-neutral-200">
+                {[
+                  "社内定例会議",
+                  "顧客との打ち合わせ",
+                  "セミナー・講演",
+                  "研修・勉強会",
+                  "1on1 ミーティング",
+                  "オンライン会議",
+                  "海外チームとの会議",
+                  "インタビュー収録",
+                ].map((u) => (
+                  <li
+                    key={u}
+                    className="py-4 flex items-center justify-between text-neutral-800"
+                  >
+                    <span>{u}</span>
+                    <span className="text-neutral-300" aria-hidden>—</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ──────── Pricing ──────── */}
+      <section className="border-b border-neutral-200">
+        <div className="max-w-3xl mx-auto px-6 py-24 md:py-32 text-center">
+          <p className="text-sm text-neutral-500 mb-4 tracking-wide">Pricing</p>
+          <h2 className="text-3xl md:text-4xl font-semibold tracking-tight mb-12">
+            使った分だけ、シンプルに。
+          </h2>
+
+          <div className="border border-neutral-200 rounded-2xl p-12">
+            <p className="text-sm text-neutral-500 mb-3">1 会議あたり</p>
+            <div className="flex items-baseline justify-center gap-1 mb-10">
+              <span className="text-6xl md:text-7xl font-semibold tracking-tight">
+                ¥{PRICE_JPY.toLocaleString()}
+              </span>
+              <span className="text-neutral-500 ml-2">/ 件</span>
+            </div>
+            <ul className="text-left space-y-3 max-w-sm mx-auto mb-10 text-sm">
               {[
                 "ファイルサイズ・時間制限なし",
                 "文字起こし & 議事録 両方含む",
@@ -256,19 +297,20 @@ export default function LandingPage() {
                 "多言語対応 (4 言語)",
                 "参考資料の同時アップロード",
               ].map((b) => (
-                <li key={b} className="flex items-center gap-2 text-sm">
-                  <span className="text-green-500">✓</span>
+                <li key={b} className="flex items-center gap-3 text-neutral-700">
+                  <span className="text-neutral-300" aria-hidden>—</span>
                   {b}
                 </li>
               ))}
             </ul>
             <Link
               href={ctaHref}
-              className="block bg-red-500 hover:bg-red-600 text-white font-bold py-4 rounded-2xl transition-colors"
+              className="inline-flex items-center gap-2 bg-neutral-900 hover:bg-neutral-800 text-white font-medium px-6 py-3 rounded-full transition-colors"
             >
-              今すぐ始める
+              はじめる
+              <span aria-hidden>→</span>
             </Link>
-            <p className="text-xs text-gray-400 mt-4">
+            <p className="text-xs text-neutral-400 mt-6">
               決済は Stripe で安全に処理されます
             </p>
           </div>
@@ -276,13 +318,13 @@ export default function LandingPage() {
       </section>
 
       {/* ──────── FAQ ──────── */}
-      <section className="py-20">
-        <div className="max-w-3xl mx-auto px-6">
-          <div className="text-center mb-12">
-            <span className="text-red-500 font-semibold text-sm uppercase tracking-wide">FAQ</span>
-            <h2 className="text-3xl md:text-4xl font-bold mt-2">よくある質問</h2>
-          </div>
-          <div className="space-y-3">
+      <section className="border-b border-neutral-200">
+        <div className="max-w-3xl mx-auto px-6 py-24 md:py-32">
+          <p className="text-sm text-neutral-500 mb-4 tracking-wide">FAQ</p>
+          <h2 className="text-3xl md:text-4xl font-semibold tracking-tight mb-12">
+            よくある質問
+          </h2>
+          <div className="divide-y divide-neutral-200 border-y border-neutral-200">
             {[
               {
                 q: "対応している音声・動画フォーマットは？",
@@ -309,49 +351,56 @@ export default function LandingPage() {
                 a: "Stripe の決済完了メールが領収書としてご利用いただけます。",
               },
             ].map((f) => (
-              <details
-                key={f.q}
-                className="group bg-white border border-gray-100 rounded-xl p-5 open:shadow-sm"
-              >
-                <summary className="cursor-pointer font-medium flex justify-between items-center">
-                  <span>Q. {f.q}</span>
-                  <span className="text-red-500 group-open:rotate-45 transition-transform text-xl">+</span>
+              <details key={f.q} className="group py-5">
+                <summary className="cursor-pointer flex justify-between items-center font-medium list-none">
+                  <span>{f.q}</span>
+                  <span
+                    className="text-neutral-400 group-open:rotate-45 transition-transform text-xl shrink-0 ml-4"
+                    aria-hidden
+                  >
+                    +
+                  </span>
                 </summary>
-                <p className="mt-3 text-sm text-gray-600 leading-relaxed">A. {f.a}</p>
+                <p className="mt-3 text-sm text-neutral-600 leading-relaxed">
+                  {f.a}
+                </p>
               </details>
             ))}
           </div>
         </div>
       </section>
 
-      {/* ──────── 最終CTA ──────── */}
-      <section className="py-16 bg-red-500">
-        <div className="max-w-3xl mx-auto px-6 text-center text-white">
-          <h2 className="text-3xl md:text-4xl font-bold mb-4">
-            議事録づくりを、今日から自動化。
+      {/* ──────── Final CTA ──────── */}
+      <section className="bg-neutral-900 text-white">
+        <div className="max-w-4xl mx-auto px-6 py-24 md:py-32 text-center">
+          <h2 className="text-4xl md:text-5xl font-semibold tracking-tight mb-6">
+            議事録を、自動化する。
           </h2>
-          <p className="text-red-100 mb-8">
-            最初の 1 件、まずはお試しください。
+          <p className="text-neutral-400 mb-10 max-w-xl mx-auto">
+            最初の 1 件、まずはお試しください。登録もサブスクリプションも必要ありません。
           </p>
           <Link
             href={ctaHref}
-            className="inline-block bg-white text-red-500 hover:bg-red-50 font-bold px-10 py-4 rounded-2xl shadow-lg transition-colors"
+            className="inline-flex items-center gap-2 bg-white text-neutral-900 hover:bg-neutral-100 font-medium px-8 py-4 rounded-full transition-colors"
           >
-            🚀 議事録を作成する
+            はじめる
+            <span aria-hidden>→</span>
           </Link>
         </div>
       </section>
 
       {/* ──────── Footer ──────── */}
-      <footer className="bg-gray-900 text-gray-400 py-10 text-sm">
-        <div className="max-w-5xl mx-auto px-6 flex flex-col md:flex-row justify-between items-center gap-4">
+      <footer className="bg-white border-t border-neutral-200">
+        <div className="max-w-6xl mx-auto px-6 py-12 flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
           <div>
-            <div className="font-bold text-white mb-1">📝 議事録生成</div>
-            <div className="text-xs">Powered by Google Gemini API</div>
+            <p className="font-semibold mb-1">議事録生成</p>
+            <p className="text-xs text-neutral-500">
+              Powered by Google Gemini · operated by JITTEE PTE. LTD.
+            </p>
           </div>
-          <div className="text-xs">
+          <p className="text-xs text-neutral-500">
             © {new Date().getFullYear()} jittee. All rights reserved.
-          </div>
+          </p>
         </div>
       </footer>
     </main>

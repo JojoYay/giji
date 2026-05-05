@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useAuth } from "@/lib/auth";
 
-const PRICE_JPY = parseInt(process.env.NEXT_PUBLIC_PRICE_JPY ?? "500", 10);
+const PRICE_JPY = parseInt(process.env.NEXT_PUBLIC_PRICE_JPY ?? "200", 10);
 
 export default function LandingPage() {
   const { user } = useAuth();

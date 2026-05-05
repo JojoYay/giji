@@ -24,7 +24,7 @@ const TEMPLATES = [
   { value: "custom",        label: "カスタム",       desc: "自由にテンプレートを編集" },
 ];
 
-const PRICE_JPY = parseInt(process.env.NEXT_PUBLIC_PRICE_JPY ?? "500", 10);
+const PRICE_JPY = parseInt(process.env.NEXT_PUBLIC_PRICE_JPY ?? "200", 10);
 
 export default function UploadPage() {
   return (

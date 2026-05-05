@@ -2,6 +2,8 @@
 
 会議の録音をアップロードするだけで、Google Gemini が文字起こしと議事録を自動生成します。
 
+**本番 URL**: <https://minutes.jittee.com>
+
 ## アーキテクチャ
 
 ```

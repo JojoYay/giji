@@ -111,7 +111,7 @@ async def create_upload_url(body: dict, request: Request):
         filename = body.get("filename", "upload.mp4")
         content_type = body.get("content_type", "application/octet-stream")
         # リクエストの Origin ヘッダーを使う（どのフロントエンドからでも動作）
-        origin = request.headers.get("origin") or os.environ.get("APP_ORIGIN", "https://giji-minutes.web.app")
+        origin = request.headers.get("origin") or os.environ.get("APP_ORIGIN", "https://minutes.jittee.com")
         url, blob_name = generate_resumable_upload_url(filename, content_type, origin)
         return {"upload_url": url, "blob_name": blob_name}
     except Exception as e:
